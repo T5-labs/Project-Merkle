@@ -239,40 +239,40 @@ function SessionUI({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
-      <TitleBar
-        title={title}
-        description={description}
-        sessionClosed={sessionClosed}
-      />
+      <Tabs defaultValue="feed" className="flex flex-col flex-1 min-h-0">
+        <TitleBar
+          title={title}
+          description={description}
+          sessionClosed={sessionClosed}
+          centerSlot={
+            <TabsList>
+              <TabsTrigger value="feed">Feed</TabsTrigger>
+              <TabsTrigger value="document">Document</TabsTrigger>
+            </TabsList>
+          }
+        />
 
-      {/* Two-column panel layout */}
-      <div
-        className="flex-1 grid"
-        style={{ gridTemplateColumns: '200px 1fr', minHeight: 0 }}
-      >
-        {/* Roster */}
-        <div className="border-r border-border overflow-hidden">
-          <RosterPanel sessionId={sessionId} />
-        </div>
+        {/* Two-column panel layout */}
+        <div
+          className="flex-1 grid min-h-0"
+          style={{ gridTemplateColumns: '200px 1fr' }}
+        >
+          {/* Roster */}
+          <div className="border-r border-border overflow-hidden">
+            <RosterPanel sessionId={sessionId} />
+          </div>
 
-        {/* Feed + Document tabs */}
-        <div className="overflow-hidden flex flex-col">
-          <Tabs defaultValue="feed" className="flex flex-col h-full">
-            <div className="px-4 pt-3 pb-2 border-b border-border">
-              <TabsList>
-                <TabsTrigger value="feed">Feed</TabsTrigger>
-                <TabsTrigger value="document">Document</TabsTrigger>
-              </TabsList>
-            </div>
+          {/* Feed + Document tab content */}
+          <div className="overflow-hidden flex flex-col">
             <TabsContent value="feed" className="flex-1 overflow-hidden flex flex-col mt-0">
               <FeedPanel sessionId={sessionId} sessionClosed={sessionClosed} />
             </TabsContent>
             <TabsContent value="document" className="flex-1 overflow-hidden flex flex-col mt-0">
               <DocumentTab sessionId={sessionId} />
             </TabsContent>
-          </Tabs>
+          </div>
         </div>
-      </div>
+      </Tabs>
 
       {/* Edit session metadata dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

@@ -247,14 +247,8 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b border-border">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Feed
-        </h2>
-      </div>
-
       {/* Message list */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1" type="always">
         <div className="divide-y divide-border/40">
           {messages.length === 0 && (
             <p className="text-xs text-muted-foreground px-3 py-4">
