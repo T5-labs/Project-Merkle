@@ -1,0 +1,34 @@
+# Dependencies — regenerated inside the builder stage
+node_modules/
+
+# Build output — regenerated inside the builder stage
+.next/
+
+# Git history
+.git/
+
+# Local env files — secrets must not enter the build context.
+# .env.example is safe to include (it has no real secrets).
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+
+# Editor config
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Documentation (not needed in the runtime image)
+README.md
+AGENTS.md
+
+# Test directories (none yet, but pre-emptively excluded)
+tests/
+__tests__/
+*.test.ts
+*.spec.ts

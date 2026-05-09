@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: merkle-postgres
+    environment:
+      POSTGRES_USER: merkle
+      # Default dev password — override via environment variable in production.
+      POSTGRES_PASSWORD: merkle_dev
+      POSTGRES_DB: merkle
+    # host:container — host is 5433 to avoid collisions with native local Postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - merkle_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U merkle -d merkle"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: merkle-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Uses the Docker service name `postgres` as the host — not localhost.
+      DATABASE_URL: postgresql://merkle:merkle_dev@postgres:5432/merkle
+      # Browser-side URL — this is what the user's browser resolves.
+      NEXT_PUBLIC_MCP_URL: http://localhost:7423/api/mcp
+      NODE_ENV: production
+    # host:container — host is 7423; pick anything that doesn't collide with your existing dev tooling
+    ports:
+      - "7423:3000"
+    restart: unless-stopped
+
+volumes:
+  merkle_pgdata: {}
