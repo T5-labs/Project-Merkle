@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "merkle": {
+      "type": "http",
+      "url": "http://localhost:7423/api/mcp"
+    }
+  }
+}
