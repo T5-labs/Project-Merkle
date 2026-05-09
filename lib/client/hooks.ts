@@ -105,6 +105,7 @@ export interface GetHistoryResult {
 export interface ReadSessionDocResult {
   content: string;
   version: number;
+  title: string | null;
 }
 
 export interface WriteDocResult {
@@ -252,6 +253,7 @@ export function useUpdateSessionDoc() {
       session_id: string;
       content: string;
       expected_version: number;
+      title?: string | null;
     }): Promise<WriteDocResult> => {
       const teamId = getTeamId(args.session_id);
       return mcpCall<WriteDocResult>('update_session_doc', args, teamId);
@@ -266,6 +268,7 @@ export function useAppendToSessionDoc() {
     mutationFn: async (args: {
       session_id: string;
       text: string;
+      title?: string | null;
     }): Promise<WriteDocResult> => {
       const teamId = getTeamId(args.session_id);
       return mcpCall<WriteDocResult>('append_to_session_doc', args, teamId);

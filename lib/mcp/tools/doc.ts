@@ -87,11 +87,15 @@ const updateSessionDocSchema = z.object({
   session_id: z.string().uuid(),
   content: z.string().min(1),
   expected_version: z.number().int().min(0),
+  /** Optional doc title. Omit to leave unchanged; null to clear; string (≤255 chars) to set. */
+  title: z.string().max(255).nullable().optional(),
 });
 
 const appendToSessionDocSchema = z.object({
   session_id: z.string().uuid(),
   text: z.string().min(1),
+  /** Optional doc title. Omit to leave unchanged; null to clear; string (≤255 chars) to set. */
+  title: z.string().max(255).nullable().optional(),
 });
 
 // Base shape for SDK registration (no .refine — refine returns ZodEffects, which has no .shape)
@@ -137,13 +141,13 @@ export function registerDocTools(server: McpServer): void {
       const participant = await requireMembership(extra, session_id);
       await touchParticipantHeartbeat(session_id, participant.teamId);
 
-      const { content, version } = await readSessionDoc(session_id);
+      const { content, version, title } = await readSessionDoc(session_id);
 
       return {
         content: [
           {
             type: "text" as const,
-            text: JSON.stringify({ content, version }),
+            text: JSON.stringify({ content, version, title }),
           },
         ],
       };
@@ -163,7 +167,7 @@ export function registerDocTools(server: McpServer): void {
       input: z.infer<typeof updateSessionDocSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id, content, expected_version } = input;
+      const { session_id, content, expected_version, title } = input;
 
       const participant = await requireMembership(extra, session_id);
       await touchParticipantHeartbeat(session_id, participant.teamId);
@@ -182,6 +186,7 @@ export function registerDocTools(server: McpServer): void {
         content,
         expected_version,
         participant.teamId,
+        title,
       );
 
       return {
@@ -210,7 +215,7 @@ export function registerDocTools(server: McpServer): void {
       input: z.infer<typeof appendToSessionDocSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id, text } = input;
+      const { session_id, text, title } = input;
 
       const participant = await requireMembership(extra, session_id);
       await touchParticipantHeartbeat(session_id, participant.teamId);
@@ -228,6 +233,7 @@ export function registerDocTools(server: McpServer): void {
         session_id,
         text,
         participant.teamId,
+        title,
       );
 
       return {

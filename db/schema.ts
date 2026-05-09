@@ -88,6 +88,14 @@ export const sessions = pgTable("sessions", {
    */
   description: text("description").notNull(),
 
+  /**
+   * Optional display title for the session document, managed by agents via MCP.
+   * Rendered above the markdown body in the Document tab.
+   * Independent of sessions.title (the session-level label shown in the dashboard).
+   * Null means no explicit doc title has been set.
+   */
+  sessionDocTitle: varchar("session_doc_title", { length: 255 }),
+
   /** Live session document content (markdown). Starts empty. */
   sessionDoc: text("session_doc").notNull().default(""),
 

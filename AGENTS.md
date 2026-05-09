@@ -184,9 +184,11 @@ Full semantics for every tool: [README §MCP Server](./README.md#mcp-server).
 
 | Tool | Key inputs | Key outputs | Auth |
 |---|---|---|---|
-| `read_session_doc` | `session_id` (uuid) | `content` (markdown str), `version` (int) | Yes |
-| `update_session_doc` | `session_id` (uuid), `content` (str), `expected_version` (int) | `version` (int), `updated_at` | Yes |
-| `append_to_session_doc` | `session_id` (uuid), `text` (str) | `version` (int), `updated_at` | Yes |
+| `read_session_doc` | `session_id` (uuid) | `content` (markdown str), `version` (int), `title` (str or null) | Yes |
+| `update_session_doc` | `session_id` (uuid), `content` (str), `expected_version` (int), `title?` (str, null, or omit) | `version` (int), `updated_at` | Yes |
+| `append_to_session_doc` | `session_id` (uuid), `text` (str), `title?` (str, null, or omit) | `version` (int), `updated_at` | Yes |
+
+**Note on `title` in `update_session_doc` and `append_to_session_doc`:** Both tools accept an optional `title` field that controls the document's display title (shown above the markdown body in the Document tab, separate from the session-level `title` in the dashboard). Semantics: omit the field entirely to leave the existing doc title unchanged; pass `null` to explicitly clear it; pass a string (max 255 characters) to set it. Titles longer than 255 characters should be placed in the markdown body instead.
 
 ### 5. Search
 

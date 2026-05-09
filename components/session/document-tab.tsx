@@ -53,8 +53,11 @@ export function DocumentTab({ sessionId }: DocumentTabProps) {
       <ScrollArea className="flex-1 px-4 py-3">
         {isLoading ? (
           <p className="text-xs text-muted-foreground">Loading document…</p>
-        ) : data?.content ? (
+        ) : data?.content || data?.title ? (
           <div className="prose prose-sm dark:prose-invert max-w-none text-sm">
+            {data.title && (
+              <h1 className="text-2xl font-bold mb-3">{data.title}</h1>
+            )}
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {data.content}
             </ReactMarkdown>

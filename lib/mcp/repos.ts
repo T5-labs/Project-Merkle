@@ -348,14 +348,15 @@ export async function getCurrentEndCursor(sessionId: string): Promise<number> {
 // Session document
 // ---------------------------------------------------------------------------
 
-/** Returns the current session doc content and version. */
+/** Returns the current session doc content, version, and doc title. */
 export async function readSessionDoc(
   sessionId: string,
-): Promise<{ content: string; version: number }> {
+): Promise<{ content: string; version: number; title: string | null }> {
   const rows = await db
     .select({
       content: sessions.sessionDoc,
       version: sessions.sessionDocVersion,
+      title: sessions.sessionDocTitle,
     })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
@@ -370,19 +371,26 @@ export async function readSessionDoc(
  * Returns the new version on success; throws MCPError('conflict') if the version
  * doesn't match (someone else wrote between the caller's read and write).
  * Also records a history snapshot.
+ *
+ * title semantics: undefined = leave existing value alone; null = clear it; string = set it.
  */
 export async function writeSessionDoc(
   sessionId: string,
   content: string,
   expectedVersion: number,
   writtenByTeamId: string,
+  title?: string | null,
 ): Promise<number> {
   const newVersion = expectedVersion + 1;
+
+  // Build the title update patch only when the caller explicitly provided a value.
+  const titlePatch: { sessionDocTitle?: string | null } =
+    title !== undefined ? { sessionDocTitle: title } : {};
 
   const result = await db.transaction(async (tx) => {
     const updated = await tx
       .update(sessions)
-      .set({ sessionDoc: content, sessionDocVersion: newVersion })
+      .set({ sessionDoc: content, sessionDocVersion: newVersion, ...titlePatch })
       .where(
         and(
           eq(sessions.id, sessionId),
@@ -415,12 +423,19 @@ export async function writeSessionDoc(
 /**
  * Atomic read+append+write inside a transaction — no version token required from
  * the caller. Returns the new version. Also records a history snapshot.
+ *
+ * title semantics: undefined = leave existing value alone; null = clear it; string = set it.
  */
 export async function appendToSessionDoc(
   sessionId: string,
   text: string,
   writtenByTeamId: string,
+  title?: string | null,
 ): Promise<number> {
+  // Build the title update patch only when the caller explicitly provided a value.
+  const titlePatch: { sessionDocTitle?: string | null } =
+    title !== undefined ? { sessionDocTitle: title } : {};
+
   return db.transaction(async (tx) => {
     const rows = await tx
       .select({
@@ -440,7 +455,7 @@ export async function appendToSessionDoc(
 
     await tx
       .update(sessions)
-      .set({ sessionDoc: newContent, sessionDocVersion: newVersion })
+      .set({ sessionDoc: newContent, sessionDocVersion: newVersion, ...titlePatch })
       .where(eq(sessions.id, sessionId));
 
     await tx.insert(sessionDocHistory).values({
