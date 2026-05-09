@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getTeamId, setTeamId } from '@/lib/client/team-id';
-import { useJoinSession, useMessageStream, useSession, useLeaveSession, useConcludeSession } from '@/lib/client/hooks';
+import { useJoinSession, useMessageStream, useSession, useLeaveSession, useConcludeSession, useUpdateSessionMetadata } from '@/lib/client/hooks';
 import { TitleBar } from '@/components/session/title-bar';
 import { RosterPanel } from '@/components/session/roster-panel';
 import { FeedPanel } from '@/components/session/feed-panel';
@@ -21,7 +21,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { LogOut } from 'lucide-react';
+import { LogOut, Share2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 // ---------------------------------------------------------------------------
 // Join gate — shown when user has no team_id for this session
@@ -108,8 +109,15 @@ function SessionUI({ sessionId }: { sessionId: string }) {
   const [concludeOpen, setConcludeOpen] = useState(false);
   const [summary, setSummary] = useState('');
 
+  // Edit metadata dialog state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editReason, setEditReason] = useState('');
+
   const leaveSession = useLeaveSession();
   const concludeSession = useConcludeSession();
+  const updateMetadata = useUpdateSessionMetadata();
   const myTeamId = getTeamId(sessionId);
 
   // Seed local state from the first successful get_session response.
@@ -136,6 +144,37 @@ function SessionUI({ sessionId }: { sessionId: string }) {
   // when the user themselves concludes the session via the TitleBar dialog).
   const sessionClosed = stream.sessionClosed;
 
+  function openEdit() {
+    setEditTitle(title);
+    setEditDescription(description);
+    setEditReason('');
+    setEditOpen(true);
+  }
+
+  async function handleEditSubmit() {
+    if (!editReason.trim()) return;
+    await updateMetadata.mutateAsync({
+      session_id: sessionId,
+      title: editTitle,
+      description: editDescription,
+      reason: editReason,
+    });
+    setTitle(editTitle);
+    setDescription(editDescription);
+    setEditOpen(false);
+  }
+
+  async function handleShare() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success('Link copied', { description: window.location.href });
+    } catch {
+      toast.error("Couldn't copy", {
+        description: 'Browser blocked clipboard access',
+      });
+    }
+  }
+
   async function handleLeave() {
     if (!myTeamId) return;
     await leaveSession.mutateAsync({ session_id: sessionId, team_id: myTeamId });
@@ -153,8 +192,8 @@ function SessionUI({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
-      {/* Action row — Leave and Conclude buttons, separated from title bar below */}
-      <div className="px-6 py-3 flex items-center gap-2 border-b border-border">
+      {/* Action row — lifecycle controls on left, metadata controls on right */}
+      <div className="px-3 py-3 flex items-center gap-2 border-b border-border">
         <Button
           variant="outline"
           size="sm"
@@ -179,17 +218,31 @@ function SessionUI({ sessionId }: { sessionId: string }) {
         >
           Conclude Session
         </Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleShare()}
+            aria-label="Share session link"
+          >
+            <Share2 className="h-4 w-4 mr-1.5" />
+            Share Session
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={sessionClosed}
+            onClick={openEdit}
+          >
+            Edit
+          </Button>
+        </div>
       </div>
 
       <TitleBar
-        sessionId={sessionId}
         title={title}
         description={description}
         sessionClosed={sessionClosed}
-        onMetadataUpdated={(t, d) => {
-          setTitle(t);
-          setDescription(d);
-        }}
       />
 
       {/* Two-column panel layout */}
@@ -220,6 +273,72 @@ function SessionUI({ sessionId }: { sessionId: string }) {
           </Tabs>
         </div>
       </div>
+
+      {/* Edit session metadata dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit session metadata</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label htmlFor="edit-title">Title</Label>
+              <Input
+                id="edit-title"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="Session title"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="edit-description">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Session description"
+                rows={3}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="edit-reason">
+                Reason for change{' '}
+                <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                id="edit-reason"
+                value={editReason}
+                onChange={(e) => setEditReason(e.target.value)}
+                placeholder="Why is this change significant?"
+                rows={2}
+              />
+              {editReason.trim() === '' && (
+                <p className="text-xs text-muted-foreground">
+                  A reason is required to explain the significance of this change.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleEditSubmit()}
+              disabled={!editReason.trim() || updateMetadata.isPending}
+            >
+              {updateMetadata.isPending ? 'Saving…' : 'Save changes'}
+            </Button>
+          </DialogFooter>
+          {updateMetadata.isError && (
+            <p className="text-xs text-destructive mt-2">
+              {updateMetadata.error instanceof Error
+                ? updateMetadata.error.message
+                : 'Failed to update metadata.'}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Conclude session dialog */}
       <Dialog open={concludeOpen} onOpenChange={setConcludeOpen}>

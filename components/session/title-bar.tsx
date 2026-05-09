@@ -1,79 +1,17 @@
 'use client';
 
-import { useState } from 'react';
-import { useUpdateSessionMetadata } from '@/lib/client/hooks';
-import { Button } from '@/components/ui/button';
-import { Share2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
 
 interface TitleBarProps {
-  sessionId: string;
   title: string;
   description: string;
   sessionClosed: boolean;
-  onMetadataUpdated?: (title: string, description: string) => void;
 }
 
-export function TitleBar({
-  sessionId,
-  title,
-  description,
-  sessionClosed,
-  onMetadataUpdated,
-}: TitleBarProps) {
-  const [editOpen, setEditOpen] = useState(false);
-
-  // Edit dialog state
-  const [editTitle, setEditTitle] = useState(title);
-  const [editDescription, setEditDescription] = useState(description);
-  const [editReason, setEditReason] = useState('');
-
-  const updateMetadata = useUpdateSessionMetadata();
-
-  function openEdit() {
-    setEditTitle(title);
-    setEditDescription(description);
-    setEditReason('');
-    setEditOpen(true);
-  }
-
-  async function handleEditSubmit() {
-    if (!editReason.trim()) return;
-    await updateMetadata.mutateAsync({
-      session_id: sessionId,
-      title: editTitle,
-      description: editDescription,
-      reason: editReason,
-    });
-    setEditOpen(false);
-    onMetadataUpdated?.(editTitle, editDescription);
-  }
-
-  async function handleShare() {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      toast.success('Link copied', { description: window.location.href });
-    } catch {
-      toast.error("Couldn't copy", {
-        description: 'Browser blocked clipboard access',
-      });
-    }
-  }
-
+export function TitleBar({ title, description, sessionClosed }: TitleBarProps) {
   return (
     <div className="px-6 py-4 border-b border-border">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight truncate">{title}</h1>
@@ -87,93 +25,7 @@ export function TitleBar({
             <p className="mt-1 text-sm text-muted-foreground">{description}</p>
           )}
         </div>
-
-        <div className="flex gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleShare}
-            aria-label="Share session link"
-          >
-            <Share2 className="h-4 w-4 mr-1.5" />
-            Share Session
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={sessionClosed}
-            onClick={openEdit}
-          >
-            Edit
-          </Button>
-        </div>
       </div>
-
-      {/* Edit metadata dialog */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit session metadata</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="edit-title">Title</Label>
-              <Input
-                id="edit-title"
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                placeholder="Session title"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-description">Description</Label>
-              <Textarea
-                id="edit-description"
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                placeholder="Session description"
-                rows={3}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="edit-reason">
-                Reason for change{' '}
-                <span className="text-destructive">*</span>
-              </Label>
-              <Textarea
-                id="edit-reason"
-                value={editReason}
-                onChange={(e) => setEditReason(e.target.value)}
-                placeholder="Why is this change significant?"
-                rows={2}
-              />
-              {editReason.trim() === '' && (
-                <p className="text-xs text-muted-foreground">
-                  A reason is required to explain the significance of this change.
-                </p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleEditSubmit}
-              disabled={!editReason.trim() || updateMetadata.isPending}
-            >
-              {updateMetadata.isPending ? 'Saving…' : 'Save changes'}
-            </Button>
-          </DialogFooter>
-          {updateMetadata.isError && (
-            <p className="text-xs text-destructive mt-2">
-              {updateMetadata.error instanceof Error
-                ? updateMetadata.error.message
-                : 'Failed to update metadata.'}
-            </p>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
