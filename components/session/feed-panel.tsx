@@ -12,7 +12,9 @@ import { getTeamId } from '@/lib/client/team-id';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { VisuallyHidden } from 'radix-ui';
+import { HelpCircle } from 'lucide-react';
 import type { Attachment } from '@/db/schema';
 
 interface FeedPanelProps {
@@ -155,7 +157,7 @@ interface PendingAttachment {
 
 export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
   const myTeamId = getTeamId(sessionId);
-  const { messages, isIdle, error: streamError } = useMessageStream(sessionId);
+  const { messages, error: streamError } = useMessageStream(sessionId);
   const { data: rosterData } = useParticipants(sessionId);
   const participants = rosterData?.participants ?? [];
 
@@ -163,6 +165,7 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
   const [draft, setDraft] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -191,6 +194,8 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
       content: { text },
       type: 'chat',
       attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
+    }).finally(() => {
+      textareaRef.current?.focus();
     });
   }
 
@@ -267,13 +272,6 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
         </div>
       )}
 
-      {/* Idle notice */}
-      {isIdle && (
-        <div className="px-3 py-1 text-xs text-muted-foreground text-center border-t border-border">
-          Session appears idle (no new messages for a while)
-        </div>
-      )}
-
       {/* Input area */}
       <div className="px-3 py-3 border-t border-border space-y-1">
         {/* Attachment preview strip */}
@@ -298,20 +296,44 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
             ))}
           </div>
         )}
-        <Textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={
-            sessionClosed
-              ? 'Session is closed'
-              : 'Send a message… (Enter to send, Shift+Enter for newline, paste image to attach)'
-          }
-          disabled={!canSend}
-          rows={2}
-          className="resize-none w-full text-sm"
-        />
+        <div className="relative">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Keyboard shortcuts"
+                  className="absolute top-1.5 right-1.5 z-10 cursor-help text-muted-foreground hover:text-foreground transition-colors"
+                  tabIndex={-1}
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="end">
+                <div className="space-y-1">
+                  <div><kbd className="font-mono text-xs">Enter</kbd> — Send message</div>
+                  <div><kbd className="font-mono text-xs">Shift+Enter</kbd> — New line</div>
+                  <div><kbd className="font-mono text-xs">Ctrl+V</kbd> — Paste image</div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <Textarea
+            ref={textareaRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder={
+              sessionClosed
+                ? 'Session is closed'
+                : 'Send a message...'
+            }
+            disabled={!canSend}
+            rows={2}
+            className="resize-none w-full text-sm pr-7"
+          />
+        </div>
         {postMessage.isError && (
           <p className="text-xs text-destructive">
             {postMessage.error instanceof Error

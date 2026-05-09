@@ -188,6 +188,10 @@ Full semantics for every tool: [README §MCP Server](./README.md#mcp-server).
 | `update_session_doc` | `session_id` (uuid), `content` (str), `expected_version` (int) | `version` (int), `updated_at` | Yes |
 | `append_to_session_doc` | `session_id` (uuid), `text` (str) | `version` (int), `updated_at` | Yes |
 
+### 5. Search
+
+`search_sessions` accepts a required `query` string (non-empty substring to match), an optional `status` filter (`"active"` | `"closed"` | `"all"`, default `"active"`), and an optional `limit` (1–100, default 20). It performs a case-insensitive substring match against both the session `title` and `description` and returns the same `SessionSummary` array shape as `list_sessions` — each entry has `session_id`, `title`, `description`, `status`, `created_at`, and `participant_count`. Use `search_sessions` when you already know part of a session's name or topic and need to locate its `session_id` quickly (for example, before calling `join_session`), rather than scanning the full list with `list_sessions`. No `X-Team-ID` header is required.
+
 ### 4. Metadata and conclusion
 
 | Tool | Key inputs | Key outputs | Auth |

@@ -49,22 +49,28 @@ function CreateSessionForm() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [teamName, setTeamName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !teamName.trim()) return;
-    const result = await createSession.mutateAsync({
-      title,
-      description,
-      creator_team_name: teamName,
-    });
-    router.push(`/sessions/${result.session_id}`);
+    setSubmitting(true);
+    try {
+      const result = await createSession.mutateAsync({
+        title,
+        description,
+        creator_team_name: teamName,
+      });
+      router.push(`/sessions/${result.session_id}`);
+    } catch {
+      setSubmitting(false);
+    }
   }
 
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>Create a session</CardTitle>
+        <CardTitle className="text-xl">Create Session</CardTitle>
         <CardDescription>
           Start a new collaborative session. You'll receive a session ID to share
           with other teams.
@@ -116,9 +122,9 @@ function CreateSessionForm() {
           <Button
             type="submit"
             className="w-full"
-            disabled={!title.trim() || !teamName.trim() || createSession.isPending}
+            disabled={!title.trim() || !teamName.trim() || createSession.isPending || submitting}
           >
-            {createSession.isPending ? 'Creating…' : 'Create session'}
+            {(createSession.isPending || submitting) ? 'Creating…' : 'Create'}
           </Button>
         </form>
       </CardContent>
@@ -236,12 +242,12 @@ function SessionRow({ session }: { session: SessionSummary }) {
       tabIndex={0}
       onClick={navigate}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(); }}
-      className="border rounded-lg p-4 flex items-start justify-between gap-4 cursor-pointer hover:bg-accent/50 transition-colors"
+      className="rounded-xl border bg-card text-card-foreground shadow-sm p-4 flex items-start justify-between gap-4 cursor-pointer hover:bg-accent/50 transition-colors"
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span className="font-semibold truncate">{session.title}</span>
-          <Badge variant="outline" className="shrink-0 text-xs">
+          <Badge variant="outline" className="shrink-0 text-xs capitalize">
             {session.status}
           </Badge>
         </div>
@@ -268,18 +274,42 @@ function SessionRow({ session }: { session: SessionSummary }) {
 
 function ActiveSessionsList() {
   const { data: sessions, isLoading } = useListSessions();
+  const [query, setQuery] = useState('');
+
+  const filtered = sessions
+    ? sessions.filter((s) => {
+        if (!query.trim()) return true;
+        const q = query.toLowerCase();
+        return (
+          s.title.toLowerCase().includes(q) ||
+          (s.description ?? '').toLowerCase().includes(q)
+        );
+      })
+    : [];
 
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-4">Active sessions</h2>
+      <h2 className="text-xl font-semibold mb-4">Active Sessions</h2>
+      <Input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search sessions…"
+        className="mb-4 h-11 text-base px-4 bg-card"
+      />
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading sessions…</p>
       ) : sessions && sessions.length > 0 ? (
-        <div className="space-y-3">
-          {sessions.map((session) => (
-            <SessionRow key={session.session_id} session={session} />
-          ))}
-        </div>
+        filtered.length > 0 ? (
+          <div className="max-h-96 overflow-y-auto pr-2 space-y-3">
+            {filtered.map((session) => (
+              <SessionRow key={session.session_id} session={session} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No sessions match &ldquo;{query}&rdquo;.
+          </p>
+        )
       ) : (
         <p className="text-sm text-muted-foreground">
           No active sessions yet — create one above to get started.
@@ -345,19 +375,19 @@ function FooterButtons() {
 function ThemedDotField() {
   const { resolvedTheme } = useTheme();
   const [colors, setColors] = useState<{ from: string; to: string }>({
-    from: 'hsla(240 5% 14% / 0.85)',
-    to: 'hsla(240 5% 14% / 0.70)',
+    from: 'hsla(0 0% 98% / 0.25)',
+    to: 'hsla(0 0% 98% / 0.18)',
   });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const cardHsl = getComputedStyle(document.documentElement)
-      .getPropertyValue('--card')
+    const fgHsl = getComputedStyle(document.documentElement)
+      .getPropertyValue('--foreground')
       .trim();
-    if (cardHsl) {
+    if (fgHsl) {
       setColors({
-        from: `hsla(${cardHsl} / 0.85)`,
-        to: `hsla(${cardHsl} / 0.70)`,
+        from: `hsla(${fgHsl} / 0.25)`,
+        to: `hsla(${fgHsl} / 0.18)`,
       });
     }
   }, [resolvedTheme]);
@@ -389,11 +419,8 @@ export default function HomePage() {
 
         <Separator className="mb-6" />
 
-        {/* Forms side by side */}
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-          <CreateSessionForm />
-          <JoinSessionForm />
-        </div>
+        {/* Create session form */}
+        <CreateSessionForm />
 
         <Separator className="my-6" />
 

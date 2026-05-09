@@ -9,7 +9,7 @@
  */
 import "server-only";
 
-import { and, desc, eq, gt, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, ilike, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/index";
 import {
   messages,
@@ -122,6 +122,72 @@ export async function listSessionsWithParticipantCount(options: {
       participantCount: number;
     }>
   >;
+}
+
+/**
+ * Returns sessions matching a case-insensitive substring on title or description,
+ * filtered by status and limited to the given count. Same column shape as
+ * listSessionsWithParticipantCount. Orders by created_at descending.
+ */
+export async function searchSessionsWithParticipantCount(options: {
+  query: string;
+  status: "active" | "closed" | "all";
+  limit: number;
+}): Promise<
+  Array<{
+    id: string;
+    title: string;
+    description: string;
+    status: "active" | "closed";
+    createdAt: Date;
+    participantCount: number;
+  }>
+> {
+  const { query, status, limit } = options;
+  const pattern = `%${query}%`;
+
+  const baseQuery = db
+    .select({
+      id: sessions.id,
+      title: sessions.title,
+      description: sessions.description,
+      status: sessions.status,
+      createdAt: sessions.createdAt,
+      participantCount:
+        sql<number>`COALESCE(COUNT(${participants.teamId}) FILTER (WHERE ${participants.status} != 'disconnected'), 0)::int`,
+    })
+    .from(sessions)
+    .leftJoin(participants, eq(participants.sessionId, sessions.id))
+    .groupBy(sessions.id)
+    .orderBy(desc(sessions.createdAt))
+    .limit(limit);
+
+  const textFilter = or(
+    ilike(sessions.title, pattern),
+    ilike(sessions.description, pattern),
+  )!;
+
+  type ResultRow = {
+    id: string;
+    title: string;
+    description: string;
+    status: "active" | "closed";
+    createdAt: Date;
+    participantCount: number;
+  };
+
+  if (status === "active") {
+    return baseQuery.where(
+      and(ne(sessions.status, "closed"), textFilter),
+    ) as Promise<ResultRow[]>;
+  }
+  if (status === "closed") {
+    return baseQuery.where(
+      and(eq(sessions.status, "closed"), textFilter),
+    ) as Promise<ResultRow[]>;
+  }
+  // "all" — only text filter
+  return baseQuery.where(textFilter) as Promise<ResultRow[]>;
 }
 
 /** Sets status = 'closed' and closed_at = NOW on the given session; returns updated row. */

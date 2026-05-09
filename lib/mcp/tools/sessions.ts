@@ -38,6 +38,7 @@ import {
   listParticipants,
   getCurrentEndCursor,
   listSessionsWithParticipantCount,
+  searchSessionsWithParticipantCount,
 } from "@/lib/mcp/repos";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,12 @@ const getSessionSchema = z.object({
 const listSessionsSchema = z.object({
   status: z.enum(["active", "closed", "all"]).optional().default("active"),
   limit: z.number().int().min(1).max(100).optional().default(50),
+});
+
+const searchSessionsSchema = z.object({
+  query: z.string().min(1),
+  status: z.enum(["active", "closed", "all"]).optional().default("active"),
+  limit: z.number().int().min(1).max(100).optional().default(20),
 });
 
 // Shorthand alias matching what the SDK actually passes into tool callbacks.
@@ -391,6 +398,31 @@ export function registerSessionTools(server: McpServer): void {
       const { status, limit } = input;
 
       const rows = await listSessionsWithParticipantCount({ status, limit });
+
+      const result = rows.map(toSessionSummaryWire);
+
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result) }],
+      };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // search_sessions
+  // -------------------------------------------------------------------------
+  // No auth required — same access level as list_sessions. Use when an agent
+  // needs to find a specific session by name or description fragment to join,
+  // rather than paginating through the full list.
+  server.tool(
+    "search_sessions",
+    searchSessionsSchema.shape,
+    async (
+      input: z.infer<typeof searchSessionsSchema>,
+      _extra: HandlerExtra,
+    ) => {
+      const { query, status, limit } = input;
+
+      const rows = await searchSessionsWithParticipantCount({ query, status, limit });
 
       const result = rows.map(toSessionSummaryWire);
 

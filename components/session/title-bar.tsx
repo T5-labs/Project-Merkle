@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useUpdateSessionMetadata, useConcludeSession } from '@/lib/client/hooks';
 import { Button } from '@/components/ui/button';
+import { Share2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -63,6 +65,17 @@ export function TitleBar({
     onMetadataUpdated?.(editTitle, editDescription);
   }
 
+  async function handleShare() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      toast.success('Link copied', { description: window.location.href });
+    } catch {
+      toast.error("Couldn't copy", {
+        description: 'Browser blocked clipboard access',
+      });
+    }
+  }
+
   async function handleConcludeSubmit() {
     if (!summary.trim()) return;
     await concludeSession.mutateAsync({
@@ -93,6 +106,15 @@ export function TitleBar({
           <Button
             variant="outline"
             size="sm"
+            onClick={handleShare}
+            aria-label="Share session link"
+          >
+            <Share2 className="h-4 w-4 mr-1.5" />
+            Share Session
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             disabled={sessionClosed}
             onClick={openEdit}
           >
@@ -104,7 +126,7 @@ export function TitleBar({
             disabled={sessionClosed}
             onClick={() => setConcludeOpen(true)}
           >
-            Conclude session
+            Conclude Session
           </Button>
         </div>
       </div>
