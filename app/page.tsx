@@ -34,6 +34,7 @@ function GithubIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { DotFieldBackground } from '@/components/ui/dot-field-background';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -290,12 +291,24 @@ function ActiveSessionsList() {
   return (
     <div>
       <h2 className="text-xl font-semibold mb-4">Active Sessions</h2>
-      <Input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search sessions…"
-        className="mb-4 h-11 text-base px-4 bg-card"
-      />
+      <div className="relative mb-4">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search sessions…"
+          className="h-11 text-base px-4 bg-card pr-10"
+        />
+        {query.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            aria-label="Clear search"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading sessions…</p>
       ) : sessions && sessions.length > 0 ? (
