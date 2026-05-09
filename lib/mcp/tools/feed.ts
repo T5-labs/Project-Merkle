@@ -32,6 +32,7 @@ import {
   getMessagesBefore,
   touchParticipantHeartbeat,
 } from "@/lib/mcp/repos";
+import { sweepStaleParticipants } from "@/lib/mcp/heartbeat";
 import type { Attachment, Message } from "@/db/schema";
 
 // Shorthand alias for the extra type used in all handlers.
@@ -221,6 +222,14 @@ export function registerFeedTools(server: McpServer): void {
       // status derivation (active / idle / disconnected in the roster).
       await touchParticipantHeartbeat(session_id, teamId);
 
+      // Lazy sweep: flip stale-active participants before returning messages.
+      // Best-effort — a sweep failure must not block the long-poll.
+      try {
+        await sweepStaleParticipants(session_id);
+      } catch (err) {
+        console.error("[wait_for_messages] sweep error (ignored):", err);
+      }
+
       const deadline = Date.now() + timeout * 1000;
 
       // Long-poll loop — server-side, NOT client-driven.
@@ -315,6 +324,14 @@ export function registerFeedTools(server: McpServer): void {
 
       // Touch heartbeat — any read counts as activity.
       await touchParticipantHeartbeat(session_id, teamId);
+
+      // Lazy sweep: flip stale-active participants before returning history.
+      // Best-effort — a sweep failure must not block the read.
+      try {
+        await sweepStaleParticipants(session_id);
+      } catch (err) {
+        console.error("[get_history] sweep error (ignored):", err);
+      }
 
       // Resolve limit: default 100, max 500; values above 500 silently clamp to 100
       // per README ("values above 500 are treated as 100, not rejected").

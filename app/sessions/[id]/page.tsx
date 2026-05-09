@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getTeamId, setTeamId } from '@/lib/client/team-id';
-import { useJoinSession, useMessageStream, useSession } from '@/lib/client/hooks';
+import { useJoinSession, useMessageStream, useSession, useLeaveSession, useConcludeSession } from '@/lib/client/hooks';
 import { TitleBar } from '@/components/session/title-bar';
 import { RosterPanel } from '@/components/session/roster-panel';
 import { FeedPanel } from '@/components/session/feed-panel';
@@ -12,7 +12,16 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { LogOut } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Join gate — shown when user has no team_id for this session
@@ -95,6 +104,14 @@ function SessionUI({ sessionId }: { sessionId: string }) {
   const [title, setTitle] = useState('Loading…');
   const [description, setDescription] = useState('');
 
+  // Conclude dialog state
+  const [concludeOpen, setConcludeOpen] = useState(false);
+  const [summary, setSummary] = useState('');
+
+  const leaveSession = useLeaveSession();
+  const concludeSession = useConcludeSession();
+  const myTeamId = getTeamId(sessionId);
+
   // Seed local state from the first successful get_session response.
   useEffect(() => {
     if (sessionQuery.data) {
@@ -119,8 +136,51 @@ function SessionUI({ sessionId }: { sessionId: string }) {
   // when the user themselves concludes the session via the TitleBar dialog).
   const sessionClosed = stream.sessionClosed;
 
+  async function handleLeave() {
+    if (!myTeamId) return;
+    await leaveSession.mutateAsync({ session_id: sessionId, team_id: myTeamId });
+    router.push('/');
+  }
+
+  async function handleConcludeSubmit() {
+    if (!summary.trim()) return;
+    await concludeSession.mutateAsync({
+      session_id: sessionId,
+      summary_section: summary,
+    });
+    setConcludeOpen(false);
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-background">
+      {/* Action row — Leave and Conclude buttons, separated from title bar below */}
+      <div className="px-6 py-3 flex items-center gap-2 border-b border-border">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleLeave}
+          disabled={!myTeamId || leaveSession.isPending}
+        >
+          <LogOut className="h-4 w-4 mr-1.5" />
+          {leaveSession.isPending ? 'Leaving…' : 'Leave session'}
+        </Button>
+        {leaveSession.isError && (
+          <span className="text-xs text-destructive">
+            {leaveSession.error instanceof Error
+              ? leaveSession.error.message
+              : 'Failed to leave.'}
+          </span>
+        )}
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={sessionClosed}
+          onClick={() => setConcludeOpen(true)}
+        >
+          Conclude Session
+        </Button>
+      </div>
+
       <TitleBar
         sessionId={sessionId}
         title={title}
@@ -160,6 +220,53 @@ function SessionUI({ sessionId }: { sessionId: string }) {
           </Tabs>
         </div>
       </div>
+
+      {/* Conclude session dialog */}
+      <Dialog open={concludeOpen} onOpenChange={setConcludeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Conclude session</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              This will close the session and write a conclusion section into the
+              session document. All teams will be notified.
+            </p>
+            <div className="space-y-1">
+              <Label htmlFor="conclude-summary">
+                Conclusion summary{' '}
+                <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                id="conclude-summary"
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                placeholder="Summarize what was accomplished and any next steps…"
+                rows={5}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConcludeOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConcludeSubmit}
+              disabled={!summary.trim() || concludeSession.isPending}
+            >
+              {concludeSession.isPending ? 'Concluding…' : 'Conclude session'}
+            </Button>
+          </DialogFooter>
+          {concludeSession.isError && (
+            <p className="text-xs text-destructive mt-2">
+              {concludeSession.error instanceof Error
+                ? concludeSession.error.message
+                : 'Failed to conclude session.'}
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

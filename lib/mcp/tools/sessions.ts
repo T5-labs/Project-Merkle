@@ -29,6 +29,7 @@ import type {
 import { requireMembership } from "@/lib/mcp/auth";
 import { MCPError } from "@/lib/mcp/errors";
 import { broadcastSystemMessage } from "@/lib/mcp/broadcast";
+import { deriveStatusFromHeartbeat, sweepStaleParticipants } from "@/lib/mcp/heartbeat";
 import {
   getSessionById,
   insertSession,
@@ -105,12 +106,21 @@ function toParticipantWire(p: {
   lastSeenAt: Date;
   status: "active" | "idle" | "disconnected";
 }) {
+  // For rows stored as 'active', derive the displayed status from last_seen_at
+  // without a DB write. Stale-active rows (> 5m) will have already been flipped
+  // to 'disconnected' by the sweep that runs before list_participants queries.
+  // This handles the intermediate 60s–5m window (idle) without any write.
+  const displayStatus =
+    p.status === "active"
+      ? deriveStatusFromHeartbeat(p.lastSeenAt)
+      : p.status;
+
   return {
     team_id: p.teamId,
     team_name: p.teamName,
     joined_at: p.joinedAt.toISOString(),
     last_seen_at: p.lastSeenAt.toISOString(),
-    status: p.status,
+    status: displayStatus,
   };
 }
 
@@ -325,8 +335,17 @@ export function registerSessionTools(server: McpServer): void {
       // Touch heartbeat to record that this team is still active.
       await touchParticipantHeartbeat(session_id, callerParticipant.teamId);
 
-      // Fetch the full roster with stored status fields — do NOT recompute
-      // idle/disconnected on the fly here. Status decay lives in Phase 3c.
+      // Lazy sweep: flip stale-active participants to disconnected before reading
+      // the roster, so the returned data reflects up-to-date presence state.
+      // Best-effort — a sweep failure must not block the read.
+      try {
+        await sweepStaleParticipants(session_id);
+      } catch (err) {
+        console.error("[list_participants] sweep error (ignored):", err);
+      }
+
+      // Fetch the full roster; toParticipantWire derives idle display status
+      // from last_seen_at for rows still stored as 'active'.
       const participantRows = await listParticipants(session_id);
 
       return {
@@ -360,6 +379,14 @@ export function registerSessionTools(server: McpServer): void {
 
       // Touch heartbeat to record that this team is still active.
       await touchParticipantHeartbeat(session_id, callerParticipant.teamId);
+
+      // Lazy sweep: flip stale-active participants before returning session state.
+      // Best-effort — a sweep failure must not block the read.
+      try {
+        await sweepStaleParticipants(session_id);
+      } catch (err) {
+        console.error("[get_session] sweep error (ignored):", err);
+      }
 
       // Read the session row.
       const session = await getSessionById(session_id);

@@ -30,12 +30,12 @@ export function DocumentTab({ sessionId }: DocumentTabProps) {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div>
+        <div className="select-none">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Document
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Managed by agents — read-only
+            Managed by agents — read-only.
           </p>
         </div>
         <Button

@@ -8,6 +8,21 @@ For full protocol reference, see [`../AGENTS.md`](../AGENTS.md).
 
 # You are {TEAM_NAME} — a participant in a Merkle session.
 
+## Configuration
+
+Before pasting this prompt to your agent, fill in the four placeholders below. They appear throughout the rest of the prompt — global find-replace works.
+
+| Placeholder | What it is | Example |
+|---|---|---|
+| `{TEAM_NAME}` | The display name your agent uses when it joins/creates the session and prefixes its chat messages. Visible to all other teams. | `"Alex's Team"`, `"Backend Crew"`, `"Claude (TPM)"` |
+| `{TOPIC}` | (Convener path only) The session title used when calling `create_session`. Joiners ignore this. | `"Auth Refactor"` |
+| `{SESSION_ID}` | (Joiner path only) The UUID of the session to join. The convener gets this from `create_session` and shares it out-of-band. Conveners ignore this. | `"6e75d94e-25f4-43fa-96ec-c50e27249e6d"` |
+| `{INSERT MISSION HERE}` | A one-paragraph description of what this team is supposed to *do* in the session. Replace the entire block, including the example bullets. | See the Mission section below for examples. |
+
+**Tip:** Pick a `{TEAM_NAME}` that's short, distinct, and human-readable. Other teams (and operators watching the page) will see this name in the roster and message prefixes. Avoid emojis and angle brackets — they render unevenly in different MCP clients.
+
+---
+
 ## What Merkle is
 
 Merkle is a multi-team coordination layer. Multiple agent teams join one

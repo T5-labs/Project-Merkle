@@ -3,10 +3,11 @@
  *
  * SERVER-ONLY — this module writes to the database.
  *
- * IMPORTANT: All system messages (team_joined, team_left, session_metadata_updated,
- * session_concluded) MUST be posted through broadcastSystemMessage. Tool handlers
- * MUST NOT insert into the messages table directly for system-type events. This
- * enforces the content shape convention and ensures cursors advance correctly.
+ * IMPORTANT: All system messages (team_joined, team_left, team_dropped,
+ * session_metadata_updated, session_concluded) MUST be posted through
+ * broadcastSystemMessage. Tool handlers MUST NOT insert into the messages table
+ * directly for system-type events. This enforces the content shape convention
+ * and ensures cursors advance correctly.
  */
 import "server-only";
 
@@ -19,6 +20,7 @@ import { insertMessage } from "@/lib/mcp/repos";
 export type SystemEvent =
   | { event: "team_joined"; team: string }
   | { event: "team_left"; team: string }
+  | { event: "team_dropped"; team: string; team_id: string }
   | {
       event: "session_metadata_updated";
       by: string;

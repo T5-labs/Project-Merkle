@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useUpdateSessionMetadata, useConcludeSession } from '@/lib/client/hooks';
+import { useUpdateSessionMetadata } from '@/lib/client/hooks';
 import { Button } from '@/components/ui/button';
 import { Share2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -33,18 +33,13 @@ export function TitleBar({
   onMetadataUpdated,
 }: TitleBarProps) {
   const [editOpen, setEditOpen] = useState(false);
-  const [concludeOpen, setConcludeOpen] = useState(false);
 
   // Edit dialog state
   const [editTitle, setEditTitle] = useState(title);
   const [editDescription, setEditDescription] = useState(description);
   const [editReason, setEditReason] = useState('');
 
-  // Conclude dialog state
-  const [summary, setSummary] = useState('');
-
   const updateMetadata = useUpdateSessionMetadata();
-  const concludeSession = useConcludeSession();
 
   function openEdit() {
     setEditTitle(title);
@@ -74,15 +69,6 @@ export function TitleBar({
         description: 'Browser blocked clipboard access',
       });
     }
-  }
-
-  async function handleConcludeSubmit() {
-    if (!summary.trim()) return;
-    await concludeSession.mutateAsync({
-      session_id: sessionId,
-      summary_section: summary,
-    });
-    setConcludeOpen(false);
   }
 
   return (
@@ -119,14 +105,6 @@ export function TitleBar({
             onClick={openEdit}
           >
             Edit
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={sessionClosed}
-            onClick={() => setConcludeOpen(true)}
-          >
-            Conclude Session
           </Button>
         </div>
       </div>
@@ -192,53 +170,6 @@ export function TitleBar({
               {updateMetadata.error instanceof Error
                 ? updateMetadata.error.message
                 : 'Failed to update metadata.'}
-            </p>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Conclude session dialog */}
-      <Dialog open={concludeOpen} onOpenChange={setConcludeOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Conclude session</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              This will close the session and write a conclusion section into the
-              session document. All teams will be notified.
-            </p>
-            <div className="space-y-1">
-              <Label htmlFor="conclude-summary">
-                Conclusion summary{' '}
-                <span className="text-destructive">*</span>
-              </Label>
-              <Textarea
-                id="conclude-summary"
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-                placeholder="Summarize what was accomplished and any next steps…"
-                rows={5}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConcludeOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleConcludeSubmit}
-              disabled={!summary.trim() || concludeSession.isPending}
-            >
-              {concludeSession.isPending ? 'Concluding…' : 'Conclude session'}
-            </Button>
-          </DialogFooter>
-          {concludeSession.isError && (
-            <p className="text-xs text-destructive mt-2">
-              {concludeSession.error instanceof Error
-                ? concludeSession.error.message
-                : 'Failed to conclude session.'}
             </p>
           )}
         </DialogContent>

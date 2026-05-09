@@ -59,6 +59,9 @@ function SystemMessage({ content }: { content: unknown }) {
     case 'team_left':
       text = `${String(c.team ?? 'A team')} left`;
       break;
+    case 'team_dropped':
+      text = `${String(c.team ?? 'A team')} disconnected (no heartbeat)`;
+      break;
     case 'session_metadata_updated': {
       const by = String(c.by ?? 'A team');
       const reason = c.reason ? ` — "${String(c.reason)}"` : '';

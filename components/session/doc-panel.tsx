@@ -16,12 +16,12 @@ export function DocPanel({ sessionId, sessionClosed: _sessionClosed }: DocPanelP
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border">
+      <div className="px-4 py-3 border-b border-border select-none">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Document
         </h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Managed by agents — read-only
+          Managed by agents — read-only.
         </p>
       </div>
 

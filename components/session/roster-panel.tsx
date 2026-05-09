@@ -1,12 +1,9 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useParticipants, useLeaveSession } from '@/lib/client/hooks';
+import { useParticipants } from '@/lib/client/hooks';
 import { getTeamId } from '@/lib/client/team-id';
-import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { LogOut } from 'lucide-react';
 
 interface RosterPanelProps {
   sessionId: string;
@@ -27,16 +24,8 @@ function StatusDot({ status }: { status: 'active' | 'idle' | 'disconnected' }) {
 }
 
 export function RosterPanel({ sessionId }: RosterPanelProps) {
-  const router = useRouter();
   const myTeamId = getTeamId(sessionId);
   const { data, isLoading, error } = useParticipants(sessionId);
-  const leaveSession = useLeaveSession();
-
-  async function handleLeave() {
-    if (!myTeamId) return;
-    await leaveSession.mutateAsync({ session_id: sessionId, team_id: myTeamId });
-    router.push('/');
-  }
 
   return (
     <div className="flex flex-col h-full">
@@ -84,26 +73,6 @@ export function RosterPanel({ sessionId }: RosterPanelProps) {
           </p>
         )}
       </ScrollArea>
-
-      <div className="px-4 py-3 border-t border-border">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full"
-          onClick={handleLeave}
-          disabled={!myTeamId || leaveSession.isPending}
-        >
-          <LogOut className="h-4 w-4" />
-          {leaveSession.isPending ? 'Leaving…' : 'Leave session'}
-        </Button>
-        {leaveSession.isError && (
-          <p className="text-xs text-destructive mt-1">
-            {leaveSession.error instanceof Error
-              ? leaveSession.error.message
-              : 'Failed to leave.'}
-          </p>
-        )}
-      </div>
     </div>
   );
 }
