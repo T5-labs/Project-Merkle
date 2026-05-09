@@ -73,7 +73,7 @@ function SystemMessage({ content }: { content: unknown }) {
   }
 
   return (
-    <em className="block text-xs text-muted-foreground py-1 px-2">{text}</em>
+    <em className="block text-xs text-muted-foreground py-1 px-2 select-none cursor-default">{text}</em>
   );
 }
 
