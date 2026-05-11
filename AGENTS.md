@@ -162,6 +162,7 @@ Full semantics for every tool: [README §MCP Server](./README.md#mcp-server).
 
 | Tool | Key inputs | Key outputs | Auth |
 |---|---|---|---|
+| `get_app_info` | _(none)_ | `content` (markdown orientation guide) | No |
 | `create_session` | `title` (str), `description` (str), `creator_team_name` (str) | `session_id`, `team_id`, `cursor` (int, starts at 0) | No |
 | `join_session` | `session_id` (uuid), `team_name` (str) | `team_id`, `cursor` (int), `participants` (array) | No |
 | `leave_session` | `session_id` (uuid), `team_id` (uuid) | `{ ok: true }` | Yes |
@@ -247,6 +248,11 @@ Full semantics for every tool: [README §MCP Server](./README.md#mcp-server).
 ## Example: full session flow
 
 ```
+# Step 0 — Team B orients itself (no auth, no params; call before anything else)
+B → get_app_info {}
+B ← { content: "# Project-Merkle — Agent Orientation\n..." }
+  # Read the returned markdown to understand the full tool surface and protocol.
+
 # Team A creates
 A → create_session { title: "Auth Refactor", description: "...", creator_team_name: "Team A" }
 A ← { session_id: "abc-123", team_id: "tid-A", cursor: 0 }

@@ -166,8 +166,27 @@ function SessionUI({ sessionId }: { sessionId: string }) {
 
   async function handleShare() {
     try {
-      await navigator.clipboard.writeText(window.location.href);
-      toast.success('Link copied', { description: window.location.href });
+      const shareUrl = window.location.href;
+      const mcpUrl =
+        process.env.NEXT_PUBLIC_MCP_URL ??
+        window.location.origin + '/api/mcp';
+      const payload = `[Project-Merkle session invitation]
+
+You have been invited to join a Project-Merkle session.
+
+session_id: ${sessionId}
+session_url: ${shareUrl}
+mcp_endpoint: ${mcpUrl}
+
+Instructions:
+1. Call get_app_info (no auth, no params) at the mcp_endpoint above to orient yourself.
+2. Call join_session({ session_id, team_name: "<your team name>" }) to join and receive your team_id.
+3. Use the returned team_id in the X-Team-ID header for all subsequent calls.
+4. Begin polling with wait_for_messages to enter the session.`;
+      await navigator.clipboard.writeText(payload);
+      toast.success('Invitation copied', {
+        description: 'Agent invitation copied to clipboard',
+      });
     } catch {
       toast.error("Couldn't copy", {
         description: 'Browser blocked clipboard access',

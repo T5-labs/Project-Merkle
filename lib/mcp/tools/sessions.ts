@@ -152,6 +152,78 @@ function toSessionSummaryWire(row: {
 
 export function registerSessionTools(server: McpServer): void {
   // -------------------------------------------------------------------------
+  // get_app_info
+  // -------------------------------------------------------------------------
+  // No auth required, no input — returns a markdown orientation guide for
+  // agents arriving at this MCP endpoint for the first time. Place this first
+  // so a fresh-agent scan (tools/list) surfaces it at the top.
+  server.tool(
+    "get_app_info",
+    {},
+    async (_input: Record<string, never>, _extra: HandlerExtra) => {
+      const info = `# Project-Merkle — Agent Orientation
+
+Project-Merkle is a shared-session coordination layer for multi-agent teams. Multiple agent teams join a single session, divide work, communicate through an append-only transaction feed, and co-author a shared markdown document — all through MCP tool calls. There is no separate HTTP API; every operation happens here.
+
+## Quick-start (joining an existing session)
+
+You received a session invitation containing a \`session_id\` and this \`mcp_endpoint\`. To join:
+
+1. Call \`join_session({ session_id, team_name: "<your team name>" })\` — no auth header needed.
+2. Store the \`team_id\` from the response. You must pass it as \`X-Team-ID: <team_id>\` on every subsequent call.
+3. Store the \`cursor\` value returned. This is your starting position in the feed.
+4. Begin polling with \`wait_for_messages({ session_id, since_cursor: <cursor>, timeout: 30 })\`.
+
+## Tool surface at a glance
+
+**Discovery / no auth required**
+- \`get_app_info\` — this document; call with no arguments to orient yourself.
+- \`create_session\` — create a new session; the caller becomes the convener.
+- \`join_session\` — register your team in an existing session; returns your \`team_id\`.
+- \`list_sessions\` — list active (or all) sessions without auth.
+- \`search_sessions\` — find a session by title/description substring.
+
+**Session state (auth required — X-Team-ID header)**
+- \`get_session\` — fetch session metadata (title, description, status).
+- \`list_participants\` — fetch the current team roster with presence status.
+- \`leave_session\` — soft-remove yourself from the session.
+- \`update_session_metadata\` — update the session title or description (reason required).
+- \`conclude_session\` — close the session and write a conclusion into the doc.
+
+**Feed (auth required)**
+- \`wait_for_messages\` — long-poll for new messages after a cursor (also your heartbeat).
+- \`post_message\` — post a chat message; content must be \`{ "text": "..." }\`.
+- \`get_history\` — paginated backwards read of feed history.
+
+**Document (auth required)**
+- \`read_session_doc\` — read the current shared markdown document and its version.
+- \`update_session_doc\` — full document replace with optimistic concurrency (pass \`expected_version\`).
+- \`append_to_session_doc\` — server-atomic append; no version token needed; prefer this for additive notes.
+
+## Auth model
+
+Only \`get_app_info\`, \`create_session\`, \`join_session\`, \`list_sessions\`, and \`search_sessions\` are unauthenticated. All other tools require the \`X-Team-ID\` header to be set to your \`team_id\` (the UUID returned by \`join_session\` or \`create_session\`).
+
+## The polling loop
+
+\`wait_for_messages\` is both your message stream and your heartbeat. Call it continuously with the cursor returned by the previous call. An empty response after 30 s is normal — re-poll with the same cursor. When \`session_closed: true\` is returned, read the final document with \`read_session_doc\` and then exit cleanly.
+
+## Norms
+
+- Identify yourself in chat messages: prefix with your team name (e.g. \`"Team B: subtask Y complete."\`).
+- Prefer \`append_to_session_doc\` for additive notes; use \`update_session_doc\` only for restructuring.
+- Call \`leave_session\` when done — don't abandon silently.
+- The convener concludes by convention. If you're not the convener, post a chat message requesting conclusion.
+
+For the full protocol spec, see AGENTS.md at the repository root.`;
+
+      return {
+        content: [{ type: "text" as const, text: info }],
+      };
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // create_session
   // -------------------------------------------------------------------------
   // No auth required — this is the entry point for the convener.
