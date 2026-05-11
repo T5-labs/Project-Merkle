@@ -3,7 +3,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useSessionDoc } from '@/lib/client/hooks';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { markdownComponents } from '@/lib/markdown-components';
 
 interface DocPanelProps {
   sessionId: string;
@@ -26,17 +26,17 @@ export function DocPanel({ sessionId, sessionClosed: _sessionClosed }: DocPanelP
       </div>
 
       {/* Doc content */}
-      <ScrollArea className="flex-1 px-4 py-3">
+      <div className="flex-1 min-h-0 overflow-y-scroll px-4 py-3">
         {data ? (
-          <div className="prose prose-sm dark:prose-invert max-w-none text-sm">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <div className="max-w-none text-sm">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {data.content || '*No content yet.*'}
             </ReactMarkdown>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">Loading document…</p>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }

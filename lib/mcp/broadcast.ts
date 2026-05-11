@@ -30,7 +30,9 @@ export type SystemEvent =
       };
       reason: string;
     }
-  | { event: "session_concluded"; by: string };
+  | { event: "session_concluded"; by: string }
+  | { event: "doc_updated"; by: string; team_id: string }
+  | { event: "doc_appended"; by: string; team_id: string };
 
 // ---------------------------------------------------------------------------
 // Broadcast

@@ -80,7 +80,30 @@ export async function POST(req: Request): Promise<Response> {
   return handleMcpRequest(req);
 }
 
+/**
+ * Returns true when the request was made by a browser navigating to the URL
+ * (i.e. `Accept` contains `text/html` and does NOT contain `text/event-stream`).
+ *
+ * Logic:
+ * - Real MCP SSE clients send `Accept: text/event-stream` — we fall through.
+ * - Browsers send `Accept: text/html,application/xhtml+xml,...` — we redirect.
+ * - Clients with a wildcard Accept header or no Accept header at all also fall
+ *   through to the MCP handler; we don't break lazy HTTP clients.
+ */
+function prefersBrowserHtml(req: Request): boolean {
+  const accept = req.headers.get('accept') ?? '';
+  return accept.includes('text/html') && !accept.includes('text/event-stream');
+}
+
 export async function GET(req: Request): Promise<Response> {
+  if (prefersBrowserHtml(req)) {
+    // Use a relative Location header so the redirect resolves correctly
+    // regardless of the internal hostname seen by the container.
+    return new Response(null, {
+      status: 307,
+      headers: { Location: '/mcp-info' },
+    });
+  }
   return handleMcpRequest(req);
 }
 

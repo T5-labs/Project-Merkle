@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { getTeamId, setTeamId } from '@/lib/client/team-id';
 import { useJoinSession, useMessageStream, useSession, useLeaveSession, useConcludeSession, useUpdateSessionMetadata } from '@/lib/client/hooks';
@@ -21,8 +22,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { LogOut, Share2 } from 'lucide-react';
+import { ArrowLeft, Download, LogOut, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 // ---------------------------------------------------------------------------
 // Join gate — shown when user has no team_id for this session
@@ -38,10 +40,19 @@ function JoinGate({
   const [teamName, setTeamName] = useState('');
   const joinSession = useJoinSession();
 
+  const storageKey = `merkle:join:${sessionId}:team_name`;
+
+  // Prefill with the last team_name used for this session, if any.
+  useEffect(() => {
+    const saved = localStorage.getItem(storageKey);
+    if (saved) setTeamName(saved);
+  }, [storageKey]);
+
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     if (!teamName.trim()) return;
     await joinSession.mutateAsync({ session_id: sessionId, team_name: teamName });
+    localStorage.setItem(storageKey, teamName);
     onJoined();
   }
 
@@ -49,7 +60,7 @@ function JoinGate({
     <div className="min-h-screen flex items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Join session</CardTitle>
+          <CardTitle>Join Session</CardTitle>
           <CardDescription>
             Enter your team name to join this session.
           </CardDescription>
@@ -73,13 +84,22 @@ function JoinGate({
                   : 'Failed to join session.'}
               </p>
             )}
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={!teamName.trim() || joinSession.isPending}
-            >
-              {joinSession.isPending ? 'Joining…' : 'Join session'}
-            </Button>
+            <div className="flex items-center justify-between gap-2">
+              <Link href="/">
+                <Button variant="default" size="sm" type="button">
+                  <ArrowLeft className="h-4 w-4 mr-1.5" />
+                  Back
+                </Button>
+              </Link>
+              <Button
+                type="submit"
+                size="sm"
+                className="flex-1"
+                disabled={!teamName.trim() || joinSession.isPending}
+              >
+                {joinSession.isPending ? 'Joining…' : 'Join'}
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>
@@ -119,6 +139,19 @@ function SessionUI({ sessionId }: { sessionId: string }) {
   const concludeSession = useConcludeSession();
   const updateMetadata = useUpdateSessionMetadata();
   const myTeamId = getTeamId(sessionId);
+
+  // Lock body/html scroll for the duration of this page so the browser
+  // scrollbar cannot appear regardless of descendant height.
+  useEffect(() => {
+    const prevBody = document.body.style.overflow;
+    const prevHtml = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevBody;
+      document.documentElement.style.overflow = prevHtml;
+    };
+  }, []);
 
   // Seed local state from the first successful get_session response.
   useEffect(() => {
@@ -178,14 +211,73 @@ session_id: ${sessionId}
 session_url: ${shareUrl}
 mcp_endpoint: ${mcpUrl}
 
-Instructions:
-1. Call get_app_info (no auth, no params) at the mcp_endpoint above to orient yourself.
-2. Call join_session({ session_id, team_name: "<your team name>" }) to join and receive your team_id.
-3. Use the returned team_id in the X-Team-ID header for all subsequent calls.
-4. Begin polling with wait_for_messages to enter the session.`;
+This guide assumes you are an agent running in Claude Code (HTTP-MCP transport with static headers). To join you will register with the server, save your team_id into .mcp.json, and ask the user to restart so your MCP transport carries the auth header. Approximate time: 2 minutes.
+
+Step 1 -- Pick a team_name and register via curl (do not use an MCP tool -- your transport isn't authed yet). Run exactly:
+
+curl -X POST ${mcpUrl} \\
+  -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"join_session","arguments":{"session_id":"${sessionId}","team_name":"YOUR_TEAM_NAME"}}}'
+
+The response contains your team_id. Save it.
+
+Step 2 -- Add or merge this entry into .mcp.json in the user's working directory (merge with any existing mcpServers entries -- do not overwrite other servers):
+
+{
+  "mcpServers": {
+    "merkle": {
+      "type": "http",
+      "url": "${mcpUrl}",
+      "headers": { "X-Team-ID": "PASTE_TEAM_ID_HERE" }
+    }
+  }
+}
+
+Step 3 -- Ask the user to restart Claude Code so the X-Team-ID header takes effect.
+
+Step 4 -- After restart, the merkle__ tools become available with auth. Call merkle__wait_for_messages({ session_id: "${sessionId}", since_cursor: 0 }) to enter the session. Call merkle__get_app_info() for a full tool reference.`;
       await navigator.clipboard.writeText(payload);
       toast.success('Invitation copied', {
         description: 'Agent invitation copied to clipboard',
+      });
+    } catch {
+      toast.error("Couldn't copy", {
+        description: 'Browser blocked clipboard access',
+      });
+    }
+  }
+
+  async function handleDownload() {
+    try {
+      const shareUrl = window.location.href;
+      const mcpUrl =
+        process.env.NEXT_PUBLIC_MCP_URL ??
+        window.location.origin + '/api/mcp';
+      const payload = `[Project-Merkle session download]
+
+The user wants to save this concluded session's document to their Obsidian vault.
+
+session_id: ${sessionId}
+session_url: ${shareUrl}
+mcp_endpoint: ${mcpUrl}
+
+To execute:
+
+1. Ask the user where their Obsidian vault lives. Common locations:
+   - macOS:   ~/Documents/Obsidian/<vault>/ or ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/<vault>/
+   - Windows: C:\\Users\\<you>\\Documents\\Obsidian\\<vault>\\
+   - Linux:   ~/Documents/Obsidian/<vault>/ or ~/Obsidian/<vault>/
+   Also ask if they have a preferred subfolder within the vault (e.g., "Sessions", "Project-Merkle", "Inbox").
+
+2. Call merkle__download_session_doc({ session_id: "${sessionId}" }) to fetch the document. The response is a JSON object with fields: title, description, concluded_at, participants (array), content (full markdown), version, suggested_filename.
+
+3. Write the content to <vault>/<subfolder>/<suggested_filename>. Use the suggested filename or let the user override. Create the subfolder if it does not exist.
+
+4. Confirm with the user once the file is written. Print the absolute path. Optionally surface the title and participant list as a one-line summary.`;
+      await navigator.clipboard.writeText(payload);
+      toast.success('Download prompt copied', {
+        description: 'Paste into Claude Code to save this session to Obsidian',
       });
     } catch {
       toast.error("Couldn't copy", {
@@ -210,68 +302,97 @@ Instructions:
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-background">
-      {/* Action row — lifecycle controls on left, metadata controls on right */}
-      <div className="px-3 py-3 flex items-center gap-2 border-b border-border">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleLeave}
-          disabled={!myTeamId || leaveSession.isPending}
-        >
-          <LogOut className="h-4 w-4 mr-1.5" />
-          {leaveSession.isPending ? 'Leaving…' : 'Leave session'}
-        </Button>
-        {leaveSession.isError && (
-          <span className="text-xs text-destructive">
-            {leaveSession.error instanceof Error
-              ? leaveSession.error.message
-              : 'Failed to leave.'}
-          </span>
-        )}
-        <Button
-          variant="destructive"
-          size="sm"
-          disabled={sessionClosed}
-          onClick={() => setConcludeOpen(true)}
-        >
-          Conclude Session
-        </Button>
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void handleShare()}
-            aria-label="Share session link"
-          >
-            <Share2 className="h-4 w-4 mr-1.5" />
-            Share Session
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={sessionClosed}
-            onClick={openEdit}
-          >
-            Edit
-          </Button>
-        </div>
-      </div>
-
+    <div className="h-screen overflow-hidden flex flex-col bg-background">
       <Tabs defaultValue="feed" className="flex flex-col flex-1 min-h-0">
+        {/* Action row — session label, lifecycle controls, tabs, and metadata controls */}
+        <div className="shrink-0 px-3 py-2 flex items-center gap-2 border-b border-border">
+          {/* Left cluster: lifecycle buttons */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLeave}
+              disabled={!myTeamId || leaveSession.isPending}
+            >
+              <LogOut className="h-4 w-4 mr-1.5 -scale-x-100" />
+              {leaveSession.isPending ? 'Leaving…' : 'Leave session'}
+            </Button>
+            {leaveSession.isError && (
+              <span className="text-xs text-destructive">
+                {leaveSession.error instanceof Error
+                  ? leaveSession.error.message
+                  : 'Failed to leave.'}
+              </span>
+            )}
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={sessionClosed}
+              onClick={() => setConcludeOpen(true)}
+            >
+              Conclude Session
+            </Button>
+          </div>
+
+          {/* Divider: left cluster / center tabs */}
+          <div className="self-stretch w-px bg-border mx-1 -my-2" />
+
+          {/* Center: Feed / Document tabs */}
+          <div className="flex-1 flex justify-center">
+            <TabsList className="h-8 px-1">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground px-3 select-none">
+                Current Session
+              </span>
+              <TabsTrigger value="feed" className="h-7 px-3 text-sm">Feed</TabsTrigger>
+              <TabsTrigger value="document" className="h-7 px-3 text-sm">Document</TabsTrigger>
+            </TabsList>
+          </div>
+
+          {/* Divider: center tabs / right cluster */}
+          <div className="self-stretch w-px bg-border mx-1 -my-2" />
+
+          {/* Right cluster: download (closed only), share, edit, theme */}
+          <div className="flex items-center gap-2">
+            {sessionClosed && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleDownload()}
+                aria-label="Download session to Obsidian"
+              >
+                <Download className="h-4 w-4 mr-1.5" />
+                Download
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleShare()}
+              aria-label="Share session link"
+            >
+              <Share2 className="h-4 w-4 mr-1.5" />
+              Share Session
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={sessionClosed}
+              onClick={openEdit}
+            >
+              Edit
+            </Button>
+            <ThemeToggle />
+          </div>
+        </div>
+
+        {/* Title bar */}
         <TitleBar
           title={title}
           description={description}
           sessionClosed={sessionClosed}
-          centerSlot={
-            <TabsList>
-              <TabsTrigger value="feed">Feed</TabsTrigger>
-              <TabsTrigger value="document">Document</TabsTrigger>
-            </TabsList>
-          }
         />
 
-        {/* Two-column panel layout */}
+        {/* Two-column panel layout — takes remaining viewport height */}
         <div
           className="flex-1 grid min-h-0"
           style={{ gridTemplateColumns: '200px 1fr' }}
@@ -317,6 +438,7 @@ Instructions:
                 onChange={(e) => setEditDescription(e.target.value)}
                 placeholder="Session description"
                 rows={3}
+                className="resize-none"
               />
             </div>
             <div className="space-y-1">

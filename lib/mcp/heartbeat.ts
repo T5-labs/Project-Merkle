@@ -4,9 +4,12 @@
  * SERVER-ONLY — this module writes to the database.
  *
  * Status derivation model:
- *   < 60s since last_seen_at  → active
- *   60s–5m since last_seen_at → idle
- *   > 5m since last_seen_at   → disconnected (sweep candidate)
+ *   < 3m since last_seen_at   → active
+ *   3m–15m since last_seen_at → idle
+ *   > 15m since last_seen_at  → disconnected (sweep candidate)
+ *
+ * 180s active matches typical agent task duration; 900s disconnect forgives
+ * short detours and user conversations without flapping.
  *
  * The sweep is "lazy on read": called at the top of every read-path tool handler
  * (list_participants, get_session, get_history, wait_for_messages) before the
@@ -30,10 +33,10 @@ import { broadcastSystemMessage } from "@/lib/mcp/broadcast";
 // ---------------------------------------------------------------------------
 
 /** Participants last seen within this window are considered active. */
-export const HEARTBEAT_ACTIVE_THRESHOLD_MS = 60_000;
+export const HEARTBEAT_ACTIVE_THRESHOLD_MS = 180_000;
 
 /** Participants last seen between ACTIVE and IDLE thresholds are considered idle. */
-export const HEARTBEAT_IDLE_THRESHOLD_MS = 300_000;
+export const HEARTBEAT_IDLE_THRESHOLD_MS = 900_000;
 
 // ---------------------------------------------------------------------------
 // Status derivation (pure — no DB access)
@@ -62,7 +65,7 @@ export function deriveStatusFromHeartbeat(
  * Sweeps stale-active participants in a session.
  *
  * For each participant whose stored status is 'active' but whose last_seen_at
- * is older than HEARTBEAT_IDLE_THRESHOLD_MS (5 minutes), this function:
+ * is older than HEARTBEAT_IDLE_THRESHOLD_MS (15 minutes), this function:
  *   1. Atomically flips status → 'disconnected' using a conditional UPDATE.
  *   2. If the UPDATE mutated the row (returned via RETURNING), posts a
  *      team_dropped system message to the feed.

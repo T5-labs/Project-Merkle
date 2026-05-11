@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start -p 7423",
     "lint": "next lint",
-    "db:generate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs generate",
-    "db:migrate": "node --env-file=.env.local node_modules/drizzle-kit/bin.cjs migrate"
+    "db:generate": "node --env-file-if-exists=.env.local node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "node --env-file-if-exists=.env.local node_modules/drizzle-kit/bin.cjs migrate"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

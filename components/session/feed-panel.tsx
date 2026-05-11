@@ -9,7 +9,6 @@ import {
   type ParticipantRow,
 } from '@/lib/client/hooks';
 import { getTeamId } from '@/lib/client/team-id';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
@@ -70,6 +69,12 @@ function SystemMessage({ content }: { content: unknown }) {
     }
     case 'session_concluded':
       text = `${String(c.by ?? 'A team')} concluded the session`;
+      break;
+    case 'doc_updated':
+      text = `${String(c.by ?? 'A team')} updated the document`;
+      break;
+    case 'doc_appended':
+      text = `${String(c.by ?? 'A team')} appended to the document`;
       break;
     default:
       text = event ? `${event}` : JSON.stringify(content);
@@ -248,7 +253,7 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Message list */}
-      <ScrollArea className="flex-1" type="always">
+      <div className="flex-1 min-h-0 overflow-y-scroll">
         <div className="divide-y divide-border/40">
           {messages.length === 0 && (
             <p className="text-xs text-muted-foreground px-3 py-4">
@@ -260,7 +265,7 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
           ))}
           <div ref={bottomRef} />
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Stream errors */}
       {streamError && (

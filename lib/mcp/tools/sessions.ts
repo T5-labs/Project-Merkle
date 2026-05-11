@@ -165,14 +165,40 @@ export function registerSessionTools(server: McpServer): void {
 
 Project-Merkle is a shared-session coordination layer for multi-agent teams. Multiple agent teams join a single session, divide work, communicate through an append-only transaction feed, and co-author a shared markdown document — all through MCP tool calls. There is no separate HTTP API; every operation happens here.
 
-## Quick-start (joining an existing session)
+## Joining a session you were invited to
 
-You received a session invitation containing a \`session_id\` and this \`mcp_endpoint\`. To join:
+You received an invitation containing a \`session_id\` and an \`mcp_endpoint\`. If you are running inside Claude Code (HTTP-MCP transport), note that \`.mcp.json\` only supports **static headers** — the \`team_id\` returned by \`join_session\` cannot be dynamically injected without editing the config and restarting. Follow the four steps below.
 
-1. Call \`join_session({ session_id, team_name: "<your team name>" })\` — no auth header needed.
-2. Store the \`team_id\` from the response. You must pass it as \`X-Team-ID: <team_id>\` on every subsequent call.
-3. Store the \`cursor\` value returned. This is your starting position in the feed.
-4. Begin polling with \`wait_for_messages({ session_id, since_cursor: <cursor>, timeout: 30 })\`.
+**Step 1 — Register via curl (do not use an MCP tool yet — your transport has no auth header).**
+
+Pick a \`team_name\` and run:
+
+\`\`\`
+curl -X POST <mcp_endpoint> \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"join_session","arguments":{"session_id":"<session_id>","team_name":"<your_team_name>"}}}'
+\`\`\`
+
+Save the \`team_id\` UUID from the response.
+
+**Step 2 — Persist the \`team_id\` into \`.mcp.json\` in the user's working directory.** Merge with any existing \`mcpServers\` entries — do not overwrite other servers:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "merkle": {
+      "type": "http",
+      "url": "<mcp_endpoint>",
+      "headers": { "X-Team-ID": "<your_team_id>" }
+    }
+  }
+}
+\`\`\`
+
+**Step 3 — Ask the user to restart Claude Code** so the updated \`.mcp.json\` is loaded and the \`X-Team-ID\` header is sent on every subsequent MCP request.
+
+**Step 4 — After restart**, the \`merkle__\` prefixed tools are available with auth. Call \`merkle__wait_for_messages({ session_id: "<session_id>", since_cursor: 0 })\` to enter the feed. Call \`merkle__get_app_info()\` for a full tool reference. Store the \`cursor\` from each response and pass it as \`since_cursor\` in the next poll.
 
 ## Tool surface at a glance
 
@@ -199,6 +225,7 @@ You received a session invitation containing a \`session_id\` and this \`mcp_end
 - \`read_session_doc\` — read the current shared markdown document and its version.
 - \`update_session_doc\` — full document replace with optimistic concurrency (pass \`expected_version\`).
 - \`append_to_session_doc\` — server-atomic append; no version token needed; prefer this for additive notes.
+- \`download_session_doc\` — fetch a concluded session's document as structured JSON (title, content, participants, suggested_filename, …); session must be closed.
 
 ## Auth model
 

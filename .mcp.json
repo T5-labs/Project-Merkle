@@ -2,7 +2,10 @@
   "mcpServers": {
     "merkle": {
       "type": "http",
-      "url": "http://localhost:7423/api/mcp"
+      "url": "http://localhost:7423/api/mcp",
+      "headers": {
+        "X-Team-ID": "bbc35cf3-db89-4161-a6cf-83d7e1f9d465"
+      }
     }
   }
 }

@@ -14,7 +14,7 @@ export function ThemeToggle() {
 
   if (!mounted) {
     // Placeholder with same dimensions to avoid layout shift
-    return <Button variant="outline" size="icon" aria-label="Toggle theme" disabled className="opacity-0" />
+    return <Button variant="outline" size="icon" aria-label="Toggle theme" disabled className="opacity-0 h-8 w-8" />
   }
 
   const isDark = resolvedTheme === 'dark'
@@ -25,6 +25,7 @@ export function ThemeToggle() {
       size="icon"
       aria-label="Toggle theme"
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      className="h-8 w-8"
     >
       {isDark ? <Sun className="h-[1.2rem] w-[1.2rem]" /> : <Moon className="h-[1.2rem] w-[1.2rem]" />}
     </Button>

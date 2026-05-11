@@ -25,7 +25,7 @@ import type {
   ServerRequest,
   ServerNotification,
 } from "@modelcontextprotocol/sdk/types.js";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 import { requireMembership } from "@/lib/mcp/auth";
 import { MCPError } from "@/lib/mcp/errors";
@@ -39,7 +39,7 @@ import {
   closeSession,
 } from "@/lib/mcp/repos";
 import { db } from "@/lib/db/index";
-import { sessions } from "@/db/schema";
+import { sessions, participants } from "@/db/schema";
 
 // Shorthand alias matching what the SDK actually passes into tool callbacks.
 type HandlerExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
@@ -119,6 +119,24 @@ const concludeSessionSchema = z.object({
   summary_section: z.string().min(1),
 });
 
+const downloadSessionDocSchema = z.object({
+  session_id: z.string().uuid(),
+});
+
+// ---------------------------------------------------------------------------
+// Slugify utility — inline, no dependency
+// ---------------------------------------------------------------------------
+
+function slugify(s: string): string {
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "session"
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -189,6 +207,12 @@ export function registerDocTools(server: McpServer): void {
         title,
       );
 
+      await broadcastSystemMessage(session_id, {
+        event: "doc_updated",
+        by: participant.teamName,
+        team_id: participant.teamId,
+      });
+
       return {
         content: [
           {
@@ -235,6 +259,12 @@ export function registerDocTools(server: McpServer): void {
         participant.teamId,
         title,
       );
+
+      await broadcastSystemMessage(session_id, {
+        event: "doc_appended",
+        by: participant.teamName,
+        team_id: participant.teamId,
+      });
 
       return {
         content: [
@@ -425,6 +455,66 @@ export function registerDocTools(server: McpServer): void {
                 closedSession.closedAt?.toISOString() ??
                 new Date().toISOString(),
               doc_version: docVersion,
+            }),
+          },
+        ],
+      };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // download_session_doc
+  // -------------------------------------------------------------------------
+  // Read-only. Returns the concluded session's document as a structured JSON
+  // payload suitable for an agent to write to an Obsidian vault. Requires the
+  // session to be closed; rejects with a 400-ish error if not yet concluded.
+  server.tool(
+    "download_session_doc",
+    downloadSessionDocSchema.shape,
+    async (
+      input: z.infer<typeof downloadSessionDocSchema>,
+      extra: HandlerExtra,
+    ) => {
+      const { session_id } = input;
+
+      const participant = await requireMembership(extra, session_id);
+      await touchParticipantHeartbeat(session_id, participant.teamId);
+
+      const session = await getSessionById(session_id);
+      if (!session) throw new MCPError("not_found", "Session not found");
+      if (!session.closedAt) {
+        throw new MCPError(
+          "bad_request",
+          "Session is not concluded yet — only closed sessions can be downloaded.",
+        );
+      }
+
+      const { content, version } = await readSessionDoc(session_id);
+
+      // Fetch participants sorted alphabetically by team_name
+      const participantRows = await db
+        .select({ teamName: participants.teamName })
+        .from(participants)
+        .where(eq(participants.sessionId, session_id))
+        .orderBy(asc(participants.teamName));
+
+      const concludedAt = session.closedAt.toISOString();
+      const datePrefix = concludedAt.slice(0, 10); // YYYY-MM-DD
+      const slug = slugify(session.title);
+      const suggestedFilename = `${datePrefix} - ${slug}.md`;
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              title: session.title,
+              description: session.description,
+              concluded_at: concludedAt,
+              participants: participantRows.map((p) => ({ team_name: p.teamName })),
+              content,
+              version,
+              suggested_filename: suggestedFilename,
             }),
           },
         ],

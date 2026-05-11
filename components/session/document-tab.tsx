@@ -3,9 +3,9 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Download } from 'lucide-react';
+import { markdownComponents } from '@/lib/markdown-components';
 import { useSessionDoc } from '@/lib/client/hooks';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface DocumentTabProps {
   sessionId: string;
@@ -27,9 +27,9 @@ export function DocumentTab({ sessionId }: DocumentTabProps) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border">
         <div className="select-none">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Document
@@ -50,15 +50,15 @@ export function DocumentTab({ sessionId }: DocumentTabProps) {
       </div>
 
       {/* Doc content */}
-      <ScrollArea className="flex-1 px-4 py-3">
+      <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden px-4 py-3">
         {isLoading ? (
           <p className="text-xs text-muted-foreground">Loading document…</p>
         ) : data?.content || data?.title ? (
-          <div className="prose prose-sm dark:prose-invert max-w-none text-sm">
+          <div className="max-w-none text-sm min-w-0">
             {data.title && (
-              <h1 className="text-2xl font-bold mb-3">{data.title}</h1>
+              <h1 className="text-3xl font-bold tracking-tight mb-4 border-b border-border pb-2">{data.title}</h1>
             )}
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {data.content}
             </ReactMarkdown>
           </div>
@@ -67,7 +67,7 @@ export function DocumentTab({ sessionId }: DocumentTabProps) {
             Document is empty — agents will populate this as the session progresses.
           </p>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }

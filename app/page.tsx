@@ -34,7 +34,7 @@ function GithubIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-import { X } from 'lucide-react';
+import { X, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { DotFieldBackground } from '@/components/ui/dot-field-background';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -98,6 +98,7 @@ function CreateSessionForm() {
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What is this session for? (optional)"
               rows={3}
+              className="resize-none"
             />
           </div>
 
@@ -238,13 +239,7 @@ function SessionRow({ session }: { session: SessionSummary }) {
   }
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={navigate}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(); }}
-      className="rounded-xl border bg-card text-card-foreground shadow-sm p-4 flex items-start justify-between gap-4 cursor-pointer hover:bg-accent/50 transition-colors"
-    >
+    <div className="w-full rounded-xl border bg-card text-card-foreground shadow-sm p-4 flex items-center justify-between gap-4">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span className="font-semibold truncate">{session.title}</span>
@@ -265,9 +260,9 @@ function SessionRow({ session }: { session: SessionSummary }) {
         size="sm"
         variant="outline"
         className="shrink-0"
-        onClick={(e) => { e.stopPropagation(); navigate(); }}
+        onClick={navigate}
       >
-        {label}
+        {label} <ArrowRight className="h-4 w-4 ml-1.5" />
       </Button>
     </div>
   );
@@ -289,14 +284,14 @@ function ActiveSessionsList() {
     : [];
 
   return (
-    <div>
+    <div className="w-full">
       <h2 className="text-xl font-semibold mb-4">Active Sessions</h2>
       <div className="relative mb-4">
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search sessions…"
-          className="h-11 text-base px-4 bg-card pr-10"
+          className="h-11 text-base px-4 bg-card dark:bg-card pr-10"
         />
         {query.length > 0 && (
           <button
@@ -313,7 +308,7 @@ function ActiveSessionsList() {
         <p className="text-sm text-muted-foreground">Loading sessions…</p>
       ) : sessions && sessions.length > 0 ? (
         filtered.length > 0 ? (
-          <div className="max-h-96 overflow-y-auto pr-2 space-y-3">
+          <div className="max-h-96 overflow-y-auto space-y-3">
             {filtered.map((session) => (
               <SessionRow key={session.session_id} session={session} />
             ))}
