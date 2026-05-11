@@ -340,11 +340,11 @@ To execute:
           {/* Center: Feed / Document tabs */}
           <div className="flex-1 flex justify-center">
             <TabsList className="h-8 px-1">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground px-3 select-none">
+              <span className="inline-flex items-center h-7 text-xs font-medium uppercase tracking-wide text-muted-foreground px-3 select-none leading-none">
                 Current Session
               </span>
-              <TabsTrigger value="feed" className="h-7 px-3 text-sm">Feed</TabsTrigger>
-              <TabsTrigger value="document" className="h-7 px-3 text-sm">Document</TabsTrigger>
+              <TabsTrigger value="feed" className="h-7 px-3 text-sm leading-none">Feed</TabsTrigger>
+              <TabsTrigger value="document" className="h-7 px-3 text-sm leading-none">Document</TabsTrigger>
             </TabsList>
           </div>
 

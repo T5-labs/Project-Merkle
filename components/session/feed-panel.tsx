@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, KeyboardEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   useMessageStream,
   usePostMessage,
@@ -9,11 +11,13 @@ import {
   type ParticipantRow,
 } from '@/lib/client/hooks';
 import { getTeamId } from '@/lib/client/team-id';
+import { markdownComponents } from '@/lib/markdown-components';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { VisuallyHidden } from 'radix-ui';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, Copy, Check, CornerUpLeft, X } from 'lucide-react';
+import { toast } from 'sonner';
 import type { Attachment } from '@/db/schema';
 
 interface FeedPanelProps {
@@ -89,33 +93,84 @@ function SystemMessage({ content }: { content: unknown }) {
 // Single message row
 // ---------------------------------------------------------------------------
 
+interface ReplyTarget {
+  messageId: string;
+  author: string;
+  text: string;
+}
+
 function MessageItem({
   message,
   participants,
+  onReply,
 }: {
   message: MessageRow;
   participants: ParticipantRow[];
+  onReply: (target: ReplyTarget) => void;
 }) {
-  if (message.type === 'system') {
-    return <SystemMessage content={message.content} />;
-  }
-
   const senderName = getTeamName(message.posted_by_team_id, participants);
   const contentObj = message.content as Record<string, unknown>;
   const text = typeof contentObj.text === 'string' ? contentObj.text : '';
   const attachments = message.attachments;
 
+  const [copied, setCopied] = useState(false);
+
+  if (message.type === 'system') {
+    return <SystemMessage content={message.content} />;
+  }
+
+  function handleReply() {
+    onReply({ messageId: message.id, author: senderName, text });
+  }
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      toast.success('Message copied', { description: 'Pasted to your clipboard' });
+    } catch {
+      toast.error("Couldn't copy message");
+    }
+  }
+
   return (
-    <div className="px-3 py-2 group">
-      <div className="flex items-baseline gap-2">
+    <div className="relative px-3 py-2 group">
+      <div className="flex items-baseline gap-2 select-none">
         <span className="text-sm font-medium shrink-0">{senderName}</span>
         <span className="text-xs text-muted-foreground">
           {formatTime(message.posted_at)}
         </span>
       </div>
       {text && (
-        <p className="text-sm mt-0.5 whitespace-pre-wrap break-words">{text}</p>
+        <div className="text-sm mt-0.5 break-words pr-16">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {text}
+          </ReactMarkdown>
+        </div>
       )}
+      <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        <button
+          type="button"
+          onClick={handleReply}
+          aria-label="Reply to message"
+          className="p-1.5 rounded hover:bg-foreground/10"
+        >
+          <CornerUpLeft className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label={copied ? 'Copied' : 'Copy message'}
+          className="p-1.5 rounded hover:bg-foreground/10"
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </div>
       {attachments && attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-1">
           {attachments.map((att, idx) => (
@@ -172,6 +227,7 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
   const postMessage = usePostMessage();
   const [draft, setDraft] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [replyingTo, setReplyingTo] = useState<ReplyTarget | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -188,8 +244,21 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
   }, [pendingAttachments]);
 
   async function handleSend() {
-    const text = draft.trim();
-    if ((!text && pendingAttachments.length === 0) || !myTeamId) return;
+    const rawText = draft.trim();
+    if ((!rawText && pendingAttachments.length === 0) || !myTeamId) return;
+
+    let text = rawText;
+    if (replyingTo) {
+      const firstLine = `> **@${replyingTo.author}**: ${replyingTo.text.split('\n')[0]}`;
+      const remainingLines = replyingTo.text
+        .split('\n')
+        .slice(1)
+        .map((line) => `> ${line}`)
+        .join('\n');
+      const blockquote = remainingLines ? `${firstLine}\n${remainingLines}` : firstLine;
+      text = rawText ? `${blockquote}\n\n${rawText}` : blockquote;
+    }
+
     const attachmentsToSend: Attachment[] = pendingAttachments.map((a) => ({
       type: 'image' as const,
       mime: a.mime,
@@ -197,6 +266,7 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
     }));
     setDraft('');
     setPendingAttachments([]);
+    setReplyingTo(null);
     await postMessage.mutateAsync({
       session_id: sessionId,
       content: { text },
@@ -261,7 +331,7 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
             </p>
           )}
           {messages.map((msg) => (
-            <MessageItem key={msg.id} message={msg} participants={participants} />
+            <MessageItem key={msg.id} message={msg} participants={participants} onReply={setReplyingTo} />
           ))}
           <div ref={bottomRef} />
         </div>
@@ -271,6 +341,27 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
       {streamError && (
         <div className="px-3 py-1 bg-destructive/10 text-xs text-destructive">
           Stream error: {streamError.message}
+        </div>
+      )}
+
+      {/* Reply banner */}
+      {replyingTo && (
+        <div className="mx-3 flex items-center justify-between bg-muted/50 px-3 py-2 text-xs text-muted-foreground border-l-2 border-primary rounded-sm">
+          <span className="truncate">
+            Replying to <span className="font-medium text-foreground">@{replyingTo.author}</span>
+            {': '}
+            {replyingTo.text.length > 80
+              ? `${replyingTo.text.slice(0, 80)}…`
+              : replyingTo.text}
+          </span>
+          <button
+            type="button"
+            onClick={() => setReplyingTo(null)}
+            aria-label="Cancel reply"
+            className="ml-2 shrink-0 p-0.5 rounded hover:bg-foreground/10"
+          >
+            <X className="h-3 w-3" />
+          </button>
         </div>
       )}
 
