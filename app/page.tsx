@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
-import { useCreateSession, useJoinSession, useListSessions } from '@/lib/client/hooks';
+import { useCreateSession, useJoinSession, useListSessions, getPasscode, getLastUsername } from '@/lib/client/hooks';
 import type { SessionSummary } from '@/lib/client/hooks';
 import { getTeamId } from '@/lib/client/team-id';
 import { Badge } from '@/components/ui/badge';
@@ -51,6 +51,12 @@ function CreateSessionForm() {
   const [description, setDescription] = useState('');
   const [teamName, setTeamName] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Prefill username from last-used global value (SSR-safe: read only after mount).
+  useEffect(() => {
+    const last = getLastUsername();
+    if (last) setTeamName(last);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -103,7 +109,7 @@ function CreateSessionForm() {
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="create-team">Your team name</Label>
+            <Label htmlFor="create-team">Username</Label>
             <Input
               id="create-team"
               value={teamName}
@@ -144,13 +150,30 @@ function JoinSessionForm() {
 
   const [sessionId, setSessionId] = useState('');
   const [teamName, setTeamName] = useState('');
+  const [passcode, setPasscode] = useState('');
+
+  // Prefill username from last-used global value on mount (SSR-safe).
+  useEffect(() => {
+    const last = getLastUsername();
+    if (last) setTeamName(last);
+  }, []);
+
+  // Pre-fill passcode from localStorage if the user previously joined/created this session.
+  useEffect(() => {
+    const trimmed = sessionId.trim();
+    if (!trimmed) return;
+    const stored = getPasscode(trimmed);
+    if (stored) setPasscode(stored);
+    else setPasscode('');
+  }, [sessionId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!sessionId.trim() || !teamName.trim()) return;
+    if (!sessionId.trim() || !teamName.trim() || !passcode.trim()) return;
     await joinSession.mutateAsync({
       session_id: sessionId,
       team_name: teamName,
+      passcode,
     });
     router.push(`/sessions/${sessionId}`);
   }
@@ -160,7 +183,7 @@ function JoinSessionForm() {
       <CardHeader>
         <CardTitle>Join a session</CardTitle>
         <CardDescription>
-          Enter an existing session ID and your team name to join.
+          Enter an existing session ID, your team name, and the session passcode to join.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -177,12 +200,23 @@ function JoinSessionForm() {
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="join-team">Your team name</Label>
+            <Label htmlFor="join-team">Username</Label>
             <Input
               id="join-team"
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
               placeholder="e.g. Alex's Team"
+              required
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="join-passcode">Passcode</Label>
+            <Input
+              id="join-passcode"
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+              placeholder="Session passcode"
               required
             />
           </div>
@@ -199,7 +233,7 @@ function JoinSessionForm() {
             type="submit"
             className="w-full"
             disabled={
-              !sessionId.trim() || !teamName.trim() || joinSession.isPending
+              !sessionId.trim() || !teamName.trim() || !passcode.trim() || joinSession.isPending
             }
           >
             {joinSession.isPending ? 'Joining…' : 'Join session'}
@@ -292,6 +326,7 @@ function ActiveSessionsList() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search sessions…"
           className="h-11 text-base px-4 bg-card dark:bg-card pr-10"
+          disabled={!sessions || sessions.length === 0}
         />
         {query.length > 0 && (
           <button
@@ -353,23 +388,22 @@ function FooterButtons() {
   return (
     <>
       <Separator className="mt-6 mb-4" />
-      <div className="flex items-center justify-center gap-2 text-sm">
+      <div className="flex items-center justify-between text-sm">
         <a
           href="https://github.com/T5-labs/Project-Merkle"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-muted-foreground hover:text-foreground hover:underline transition-colors"
+          className="flex items-center text-muted-foreground hover:text-foreground hover:underline transition-colors"
         >
-          GitHub
+          <GithubIcon className="h-4 w-4 mr-1.5" />GitHub
         </a>
-        <span className="text-muted-foreground/60 select-none" aria-hidden="true">·</span>
         <button
           type="button"
           onClick={() => void handleCopy()}
           disabled={!mcpUrl}
           className="text-muted-foreground hover:text-foreground hover:underline transition-colors disabled:cursor-not-allowed disabled:hover:text-muted-foreground disabled:hover:no-underline"
         >
-          MCP Layer
+          MCP Server
         </button>
       </div>
     </>
