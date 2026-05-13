@@ -118,6 +118,14 @@ export const sessions = pgTable("sessions", {
 
   /** Lifecycle state. Drives post_message / doc-write gating. */
   status: sessionStatusEnum("status").notNull().default("active"),
+
+  /**
+   * scrypt hash of the session passcode, format: `${saltHex}:${derivedKeyHex}`.
+   * Generated at create_session time; verified on join_session for new joiners.
+   * Raw passcode is returned only once (in the create_session response) and
+   * never stored in plaintext.
+   */
+  passcodeHash: text("passcode_hash").notNull(),
 });
 
 // ---------------------------------------------------------------------------

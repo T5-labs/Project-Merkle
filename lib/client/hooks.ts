@@ -54,6 +54,8 @@ export interface CreateSessionResult {
   cursor: number;
   title: string;
   description: string;
+  /** Raw passcode returned only once at session creation time. */
+  passcode: string;
 }
 
 export interface JoinSessionResult {
@@ -78,6 +80,7 @@ export interface GetSessionResult {
   created_at: string;
   closed_at: string | null;
   session_doc_version: number;
+  created_by_team_id?: string;
 }
 
 // --- Feed tools ---
@@ -126,6 +129,12 @@ export interface ConcludeSessionResult {
   doc_version: number;
 }
 
+export interface ReopenSessionResult {
+  session_id: string;
+  status: string;
+  closed_at: null;
+}
+
 export interface SessionSummary {
   session_id: string;
   title: string;
@@ -162,6 +171,46 @@ export function useListSessions(options?: {
 // Session lifecycle mutations
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Passcode localStorage helpers
+// ---------------------------------------------------------------------------
+
+const PASSCODE_PREFIX = 'merkle:passcode:';
+
+/** Returns the stored passcode for a session, or null if not found / SSR. */
+export function getPasscode(sessionId: string): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(`${PASSCODE_PREFIX}${sessionId}`);
+}
+
+/** Persists the passcode for the given session. No-op during SSR. */
+export function setPasscode(sessionId: string, passcode: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(`${PASSCODE_PREFIX}${sessionId}`, passcode);
+}
+
+const LAST_USERNAME_KEY = 'merkle:last_username';
+
+/** Returns the globally stored last-used username, or null if not found / SSR. */
+export function getLastUsername(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(LAST_USERNAME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Persists the last-used username globally. No-op during SSR. */
+export function setLastUsername(name: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(LAST_USERNAME_KEY, name);
+  } catch {
+    // ignore quota / security errors
+  }
+}
+
 export function useCreateSession() {
   return useMutation({
     mutationFn: async (args: {
@@ -171,8 +220,12 @@ export function useCreateSession() {
     }): Promise<CreateSessionResult> => {
       return mcpCall<CreateSessionResult>('create_session', args);
     },
-    onSuccess(data) {
+    onSuccess(data, variables) {
       setTeamId(data.session_id, data.team_id);
+      // Seed passcode into localStorage so the creator can copy it later.
+      setPasscode(data.session_id, data.passcode);
+      // Remember the username globally for cross-session prefill.
+      setLastUsername(variables.creator_team_name);
     },
   });
 }
@@ -182,11 +235,19 @@ export function useJoinSession() {
     mutationFn: async (args: {
       session_id: string;
       team_name: string;
+      passcode?: string;
     }): Promise<JoinSessionResult> => {
-      return mcpCall<JoinSessionResult>('join_session', args);
+      const storedTeamId = getTeamId(args.session_id);
+      return mcpCall<JoinSessionResult>('join_session', args, storedTeamId);
     },
     onSuccess(data, variables) {
       setTeamId(variables.session_id, data.team_id);
+      // Persist passcode so re-entry pre-fills the field.
+      if (variables.passcode) {
+        setPasscode(variables.session_id, variables.passcode);
+      }
+      // Remember the username globally for cross-session prefill.
+      setLastUsername(variables.team_name);
     },
   });
 }
@@ -229,6 +290,14 @@ export function useSession(sessionId: string) {
       mcpCall<GetSessionResult>('get_session', { session_id: sessionId }, teamId ?? undefined),
     refetchInterval: 10_000,
     enabled: teamId !== null,
+    // Never retry on not_found / auth errors — session absence is definitive.
+    // The default retry:3 would delay the not-found state by ~8s and mask the error.
+    retry: (failureCount, error) => {
+      if (error instanceof MCPClientError && (error.code === 'not_found' || error.code === 'unauthorized' || error.code === 'forbidden')) {
+        return false;
+      }
+      return failureCount < 3;
+    },
   });
 }
 
@@ -302,6 +371,22 @@ export function useConcludeSession() {
     }): Promise<ConcludeSessionResult> => {
       const teamId = getTeamId(args.session_id);
       return mcpCall<ConcludeSessionResult>('conclude_session', args, teamId);
+    },
+  });
+}
+
+export function useReopenSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: {
+      session_id: string;
+      reason: string;
+    }): Promise<ReopenSessionResult> => {
+      const teamId = getTeamId(args.session_id);
+      return mcpCall<ReopenSessionResult>('reopen_session', args, teamId);
+    },
+    onSuccess(_data, variables) {
+      void queryClient.invalidateQueries({ queryKey: ['session', variables.session_id] });
     },
   });
 }

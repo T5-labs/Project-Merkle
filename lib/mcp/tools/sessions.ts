@@ -26,14 +26,17 @@ import type {
   ServerNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { requireMembership } from "@/lib/mcp/auth";
+import { eq } from "drizzle-orm";
+import { requireMembership, extractTeamId } from "@/lib/mcp/auth";
 import { MCPError } from "@/lib/mcp/errors";
+import { generatePasscode, hashPasscode, verifyPasscode } from "@/lib/passcode";
 import { broadcastSystemMessage } from "@/lib/mcp/broadcast";
 import { deriveStatusFromHeartbeat, sweepStaleParticipants } from "@/lib/mcp/heartbeat";
 import {
   getSessionById,
   insertSession,
   insertParticipant,
+  getParticipant,
   markParticipantStatus,
   touchParticipantHeartbeat,
   listParticipants,
@@ -41,6 +44,8 @@ import {
   listSessionsWithParticipantCount,
   searchSessionsWithParticipantCount,
 } from "@/lib/mcp/repos";
+import { db } from "@/lib/db/index";
+import { sessions } from "@/db/schema";
 
 // ---------------------------------------------------------------------------
 // Input schemas
@@ -55,6 +60,7 @@ const createSessionSchema = z.object({
 const joinSessionSchema = z.object({
   session_id: z.string().uuid(),
   team_name: z.string().min(1).max(200),
+  passcode: z.string().optional(),
 });
 
 const leaveSessionSchema = z.object({
@@ -79,6 +85,11 @@ const searchSessionsSchema = z.object({
   query: z.string().min(1),
   status: z.enum(["active", "closed", "all"]).optional().default("active"),
   limit: z.number().int().min(1).max(100).optional().default(20),
+});
+
+const reopenSessionSchema = z.object({
+  session_id: z.string().uuid(),
+  reason: z.string().min(1),
 });
 
 // Shorthand alias matching what the SDK actually passes into tool callbacks.
@@ -171,13 +182,13 @@ You received an invitation containing a \`session_id\` and an \`mcp_endpoint\`. 
 
 **Step 1 — Register via curl (do not use an MCP tool yet — your transport has no auth header).**
 
-Pick a \`team_name\` and run:
+Pick a \`team_name\` and run (include the \`passcode\` from your invitation):
 
 \`\`\`
 curl -X POST <mcp_endpoint> \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"join_session","arguments":{"session_id":"<session_id>","team_name":"<your_team_name>"}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"join_session","arguments":{"session_id":"<session_id>","team_name":"<your_team_name>","passcode":"<passcode>"}}}'
 \`\`\`
 
 Save the \`team_id\` UUID from the response.
@@ -205,7 +216,7 @@ Save the \`team_id\` UUID from the response.
 **Discovery / no auth required**
 - \`get_app_info\` — this document; call with no arguments to orient yourself.
 - \`create_session\` — create a new session; the caller becomes the convener.
-- \`join_session\` — register your team in an existing session; returns your \`team_id\`.
+- \`join_session\` — register your team in an existing session; requires a \`passcode\` parameter (unless your team is already a participant); returns your \`team_id\`.
 - \`list_sessions\` — list active (or all) sessions without auth.
 - \`search_sessions\` — find a session by title/description substring.
 
@@ -215,6 +226,7 @@ Save the \`team_id\` UUID from the response.
 - \`leave_session\` — soft-remove yourself from the session.
 - \`update_session_metadata\` — update the session title or description (reason required).
 - \`conclude_session\` — close the session and write a conclusion into the doc.
+- \`reopen_session\` — reopen a closed session (creator only; reason required).
 
 **Feed (auth required)**
 - \`wait_for_messages\` — long-poll for new messages after a cursor (also your heartbeat).
@@ -271,12 +283,18 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
       // created_by_team_id on the session row in the same step.
       const teamId = crypto.randomUUID();
 
+      // Generate and hash the session passcode. The raw passcode is returned
+      // to the creator only once and never stored in plaintext.
+      const passcode = generatePasscode();
+      const passcodeHash = await hashPasscode(passcode);
+
       // Insert the session row. created_by_team_id is a logical reference to
       // the participant row we insert immediately below — no FK constraint.
       const session = await insertSession({
         title,
         description,
         createdByTeamId: teamId,
+        passcodeHash,
       });
 
       // Register the convener as a participant with the pre-generated teamId.
@@ -286,8 +304,14 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
         teamName: creator_team_name,
       });
 
-      // Feed is empty at creation time; cursor 0 is the correct starting state.
-      const cursor = 0;
+      // Broadcast session_started so the feed opens with a meaningful first event.
+      await broadcastSystemMessage(session.id, {
+        event: "session_started",
+        by: creator_team_name,
+      });
+
+      // Feed cursor starts after the session_started event.
+      const cursor = await getCurrentEndCursor(session.id);
 
       const result = {
         session_id: session.id,
@@ -295,6 +319,8 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
         cursor,
         title: session.title,
         description: session.description,
+        // Raw passcode returned only once — the caller must save it.
+        passcode,
       };
 
       return {
@@ -314,17 +340,44 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
     joinSessionSchema.shape,
     async (
       input: z.infer<typeof joinSessionSchema>,
-      _extra: HandlerExtra,
+      extra: HandlerExtra,
     ) => {
-      const { session_id, team_name } = input;
+      const { session_id, team_name, passcode } = input;
 
-      // Validate session exists and is active.
+      // Validate session exists (closed sessions are now joinable — read-only access).
       const session = await getSessionById(session_id);
       if (!session) {
         throw new MCPError("not_found", "Session not found");
       }
-      if (session.status === "closed") {
-        throw new MCPError("forbidden", "Session is closed");
+
+      // Bypass check: if the X-Team-ID header points at a team that is already
+      // a participant of THIS session, allow re-entry without the passcode and
+      // return their existing team_id (no duplicate row created).
+      const headerTeamId = extractTeamId(extra);
+      if (headerTeamId) {
+        const existing = await getParticipant(session_id, headerTeamId);
+        if (existing) {
+          // Re-joining participant — skip passcode, return existing identity.
+          const cursor = await getCurrentEndCursor(session_id);
+          const participantRows = await listParticipants(session_id);
+          const result = {
+            team_id: existing.teamId,
+            cursor,
+            participants: participantRows.map(toParticipantWire),
+          };
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result) }],
+          };
+        }
+      }
+
+      // New joiner — passcode is required.
+      if (!passcode) {
+        throw new MCPError("unauthorized", "Passcode required to join");
+      }
+      const valid = await verifyPasscode(passcode, session.passcodeHash);
+      if (!valid) {
+        throw new MCPError("unauthorized", "Invalid passcode");
       }
 
       // Issue a fresh team_id for this joining team.
@@ -501,6 +554,7 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
         created_at: session.createdAt.toISOString(),
         closed_at: session.closedAt ? session.closedAt.toISOString() : null,
         session_doc_version: session.sessionDocVersion,
+        created_by_team_id: session.createdByTeamId,
       };
 
       return {
@@ -554,6 +608,80 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
+      };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // reopen_session
+  // -------------------------------------------------------------------------
+  // Auth required: only the team whose team_id matches the session's
+  // created_by_team_id may reopen the session.
+  server.tool(
+    "reopen_session",
+    reopenSessionSchema.shape,
+    async (
+      input: z.infer<typeof reopenSessionSchema>,
+      extra: HandlerExtra,
+    ) => {
+      const { session_id, reason } = input;
+
+      // Validate that the caller is authenticated and holds a team_id header.
+      const callerTeamId = extractTeamId(extra);
+      if (!callerTeamId) {
+        throw new MCPError("unauthorized", "X-Team-ID header required");
+      }
+
+      // Fetch the session — 404 if not found.
+      const session = await getSessionById(session_id);
+      if (!session) {
+        throw new MCPError("not_found", "Session not found");
+      }
+
+      // Only the creator can reopen.
+      if (session.createdByTeamId !== callerTeamId) {
+        throw new MCPError("forbidden", "Only the session creator can reopen");
+      }
+
+      // Must currently be closed.
+      if (session.status !== "closed") {
+        throw new MCPError("bad_request", "Session is not closed");
+      }
+
+      // Reopen: clear closed_at and set status back to active.
+      const [reopenedSession] = await db
+        .update(sessions)
+        .set({ status: "active", closedAt: null })
+        .where(eq(sessions.id, session_id))
+        .returning();
+
+      if (!reopenedSession) {
+        throw new MCPError("not_found", "Session not found");
+      }
+
+      // Look up the creator's team name from the participants table for the broadcast.
+      const creatorParticipant = await getParticipant(session_id, callerTeamId);
+      const creatorName = creatorParticipant?.teamName ?? callerTeamId;
+
+      // Broadcast session_reopened so all polling participants see the event.
+      await broadcastSystemMessage(session_id, {
+        event: "session_reopened",
+        by: creatorName,
+        team_id: callerTeamId,
+        reason,
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              session_id,
+              status: "active",
+              closed_at: null,
+            }),
+          },
+        ],
       };
     },
   );

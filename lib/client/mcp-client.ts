@@ -150,11 +150,24 @@ export async function mcpCall<TResult>(
   }
 
   if (toolResult.isError) {
+    // First, try to parse the structured JSON error payload produced by toMcpToolError.
+    // If parsing fails it means the MCP SDK caught the thrown MCPError and serialised
+    // only error.message as plain text (the SDK's createToolError path). In that case
+    // we do a best-effort code inference from the plain-text message so callers can
+    // still distinguish not_found / unauthorized / etc. without a code field.
     let payload: McpErrorPayload;
     try {
       payload = JSON.parse(textItem.text) as McpErrorPayload;
     } catch {
-      throw new MCPClientError("internal", textItem.text);
+      // Plain-text error from SDK — infer code from message text.
+      const text = textItem.text.toLowerCase();
+      let code = "internal";
+      if (text.includes("not found")) code = "not_found";
+      else if (text.includes("unauthorized") || text.includes("missing or invalid")) code = "unauthorized";
+      else if (text.includes("forbidden") || text.includes("closed")) code = "forbidden";
+      else if (text.includes("conflict") || text.includes("version mismatch")) code = "conflict";
+      else if (text.includes("bad request") || text.includes("invalid")) code = "bad_request";
+      throw new MCPClientError(code, textItem.text);
     }
     throw new MCPClientError(
       payload.error.code,

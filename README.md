@@ -656,7 +656,7 @@ The following are deliberately deferred. They are noted here so they don't get a
 ### Prerequisites
 
 - Node 20+, npm (all modes)
-- Docker Desktop (prod mode and Dockerized-Postgres dev mode)
+- Docker Desktop (for running Postgres in a container)
 - Postgres 13+ locally (no-Docker dev mode only)
 
 ---
@@ -680,19 +680,21 @@ works without any edits.
 
 ---
 
-### Mode B — Full Docker stack (production)
+### Mode B — Production build on host, Postgres in Docker
+
+The app no longer runs in Docker. Only Postgres runs in a container. For a production-style
+build on the host:
 
 ```bash
-docker compose up -d --build
+docker compose up -d postgres        # start only the Postgres container
+cp .env.example .env.local           # set DATABASE_URL=postgresql://merkle:merkle_dev@localhost:5433/merkle
+npm install
+npm run db:migrate
+npm run build
+npm start
 ```
 
-On first run, apply the migration inside the app container:
-
-```bash
-docker compose exec app npm run db:migrate
-```
-
-Open http://localhost:7423.
+Open http://localhost:7423 (or whatever port `npm start` binds — set `PORT` in `.env.local` if needed).
 
 > **Production note:** `POSTGRES_PASSWORD: merkle_dev` in `docker-compose.yml` is the
 > local-dev default. Override it via environment variable before deploying to any
@@ -724,6 +726,9 @@ Controlled by `MCP_URL` in `.env.local` — change it after deployment without t
 
 ### Production deployment
 
-`output: "standalone"` is set in `next.config.js` and `Dockerfile` is the natural deploy artifact.
-Fly.io and Railway are the recommended hosts — both support persistent long-running Node processes,
-which the long-poll requirement needs (serverless function timeouts are too short).
+`output: "standalone"` is set in `next.config.js`. `Dockerfile` can still be used to build a
+standalone image for deployment to Fly.io, Railway, or any host that supports persistent
+long-running Node processes (required for the long-poll endpoints — serverless function timeouts
+are too short). When deploying via Docker image, inject `DATABASE_URL` and `NEXT_PUBLIC_MCP_URL`
+as environment variables at runtime; run migrations (`npm run db:migrate`) against the target
+database before starting the container.

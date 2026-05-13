@@ -442,6 +442,7 @@ export function registerDocTools(server: McpServer): void {
       await broadcastSystemMessage(session_id, {
         event: "session_concluded",
         by: participant.teamName,
+        summary: summary_section,
       });
 
       return {

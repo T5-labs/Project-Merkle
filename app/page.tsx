@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 // GitHub mark SVG (official simple path, public domain / freely usable)
 function GithubIcon({ className }: { className?: string }) {
@@ -302,12 +303,21 @@ function SessionRow({ session }: { session: SessionSummary }) {
   );
 }
 
-function ActiveSessionsList() {
-  const { data: sessions, isLoading } = useListSessions();
+function SessionsList() {
+  const [activeTab, setActiveTab] = useState<'active' | 'closed'>('active');
   const [query, setQuery] = useState('');
 
-  const filtered = sessions
-    ? sessions.filter((s) => {
+  const { data: activeSessions, isLoading: activeLoading } = useListSessions({ status: 'active' });
+  const { data: closedSessions, isLoading: closedLoading } = useListSessions({ status: 'closed' });
+
+  const activeCount = activeSessions?.length ?? 0;
+  const closedCount = closedSessions?.length ?? 0;
+
+  const currentSessions = activeTab === 'active' ? activeSessions : closedSessions;
+  const isLoading = activeTab === 'active' ? activeLoading : closedLoading;
+
+  const filtered = currentSessions
+    ? currentSessions.filter((s) => {
         if (!query.trim()) return true;
         const q = query.toLowerCase();
         return (
@@ -317,47 +327,80 @@ function ActiveSessionsList() {
       })
     : [];
 
-  return (
-    <div className="w-full">
-      <h2 className="text-xl font-semibold mb-4">Active Sessions</h2>
-      <div className="relative mb-4">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search sessions…"
-          className="h-11 text-base px-4 bg-card dark:bg-card pr-10"
-          disabled={!sessions || sessions.length === 0}
-        />
-        {query.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setQuery('')}
-            aria-label="Clear search"
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading sessions…</p>
-      ) : sessions && sessions.length > 0 ? (
-        filtered.length > 0 ? (
+  function renderList() {
+    if (isLoading) {
+      return <p className="text-sm text-muted-foreground">Loading sessions…</p>;
+    }
+    if (currentSessions && currentSessions.length > 0) {
+      if (filtered.length > 0) {
+        return (
           <div className="max-h-96 overflow-y-auto space-y-3">
             {filtered.map((session) => (
               <SessionRow key={session.session_id} session={session} />
             ))}
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No sessions match &ldquo;{query}&rdquo;.
-          </p>
-        )
-      ) : (
+        );
+      }
+      return (
+        <p className="text-sm text-muted-foreground">
+          No sessions match &ldquo;{query}&rdquo;.
+        </p>
+      );
+    }
+    if (activeTab === 'active') {
+      return (
         <p className="text-sm text-muted-foreground">
           No active sessions yet — create one above to get started.
         </p>
-      )}
+      );
+    }
+    return (
+      <p className="text-sm text-muted-foreground">No closed sessions.</p>
+    );
+  }
+
+  return (
+    <div className="w-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => {
+          setActiveTab(v as 'active' | 'closed');
+          setQuery('');
+        }}
+      >
+        <TabsList className="h-8 px-1 mb-3 w-full">
+          <span className="inline-flex items-center h-7 text-xs font-medium uppercase tracking-wide text-muted-foreground px-3 select-none leading-none flex-1">
+            Sessions
+          </span>
+          <TabsTrigger value="active" className="h-7 px-3 text-sm flex-1">Active ({activeCount})</TabsTrigger>
+          <TabsTrigger value="closed" className="h-7 px-3 text-sm flex-1">Closed ({closedCount})</TabsTrigger>
+        </TabsList>
+        <div className="relative mb-4">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search sessions…"
+            className="h-11 text-base px-4 bg-card dark:bg-card pr-10"
+            disabled={!currentSessions || currentSessions.length === 0}
+          />
+          {query.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <TabsContent value="active" className="mt-0">
+          {renderList()}
+        </TabsContent>
+        <TabsContent value="closed" className="mt-0">
+          {renderList()}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -466,8 +509,8 @@ export default function HomePage() {
 
         <Separator className="my-6" />
 
-        {/* Active sessions */}
-        <ActiveSessionsList />
+        {/* Sessions list */}
+        <SessionsList />
 
         {/* Footer */}
         <FooterButtons />

@@ -54,6 +54,33 @@ function SystemMessage({ content }: { content: unknown }) {
   const c = content as Record<string, unknown>;
   const event = c.event as string | undefined;
 
+  // Tinted events render with a coloured background strip instead of plain italic text.
+  if (event === 'session_started' || event === 'session_reopened') {
+    const by = String(c.by ?? 'A team');
+    const label =
+      event === 'session_started'
+        ? `${by} started the session`
+        : `${by} reopened the session: ${String(c.reason ?? '')}`;
+    return (
+      <div className="mx-2 my-1 px-3 py-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-700 dark:text-emerald-300 select-none cursor-default">
+        {label}
+      </div>
+    );
+  }
+
+  if (event === 'session_concluded') {
+    const by = String(c.by ?? 'A team');
+    const summary = c.summary ? String(c.summary) : null;
+    return (
+      <div className="mx-2 my-1 px-3 py-1.5 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-700 dark:text-red-300 select-none cursor-default">
+        <div>{by} concluded the session</div>
+        {summary && (
+          <div className="mt-0.5 text-red-600/80 dark:text-red-400/80 whitespace-pre-wrap">{summary}</div>
+        )}
+      </div>
+    );
+  }
+
   let text = '';
   switch (event) {
     case 'team_joined':
@@ -71,9 +98,6 @@ function SystemMessage({ content }: { content: unknown }) {
       text = `${by} updated session metadata${reason}`;
       break;
     }
-    case 'session_concluded':
-      text = `${String(c.by ?? 'A team')} concluded the session`;
-      break;
     case 'doc_updated':
       text = `${String(c.by ?? 'A team')} updated the document`;
       break;
