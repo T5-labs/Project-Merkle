@@ -1,0 +1,25 @@
+# Calls the reusable build/push workflow from T5-labs/.github-private.
+#
+# Build gate: the reusable workflow only launches a Docker build when the head
+# commit message is exactly "publish" or is a merge-commit message that contains
+# "publish". Without passing caller_commit_message below the gate always evaluates
+# false and nothing ever builds — so that arg is required.
+#
+# Resulting image tags (set by the reusable workflow):
+#   aaarbuckle/project-merkle:main
+#   aaarbuckle/project-merkle:<sha>
+# Both tags are polled by Watchtower on the deploy server for automatic redeployment.
+
+name: Build & Push to DockerHub
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-push:
+    uses: T5-labs/.github-private/.github/workflows/dockerhub-build-push.yml@main
+    with:
+      caller_commit_message: ${{ github.event.head_commit.message }}
+      caller_event_name: ${{ github.event_name }}
+    secrets: inherit

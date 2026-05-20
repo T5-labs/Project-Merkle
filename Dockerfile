@@ -42,12 +42,21 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # These are stubs only; set real values in docker-compose.yml or via -e flags.
 ENV DATABASE_URL=""
 ENV NEXT_PUBLIC_MCP_URL=""
+ENV MCP_SESSION_TOKEN_SECRET=""
+
+# Bind the standalone server to all interfaces inside the container so
+# Docker bridge-network traffic is not silently dropped.
+ENV HOSTNAME=0.0.0.0
+# Default port — overridable at runtime via the PORT env var.
+ENV PORT=3000
 
 # Run as the built-in non-root `node` user (uid 1000) that ships with
 # the node:alpine images — no custom user creation needed.
 USER node
 
 # Copy only the standalone server output and the static assets.
+# The standalone bundle ships its own tree-shaken node_modules — no
+# separate node_modules or package.json copy needed.
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 
@@ -55,13 +64,9 @@ COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 # Uncomment the line below if public/ is added in a future phase:
 # COPY --from=builder --chown=node:node /app/public ./public
 
-# Copy drizzle migrations so `npm run db:migrate` can be run inside
-# the container if needed (e.g. docker compose exec app npm run db:migrate).
-COPY --from=builder --chown=node:node /app/drizzle ./drizzle
-COPY --from=builder --chown=node:node /app/drizzle.config.ts ./drizzle.config.ts
-COPY --from=builder --chown=node:node /app/node_modules ./node_modules
-COPY --from=builder --chown=node:node /app/package.json ./package.json
-
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 3000) + '/', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 CMD ["node", "server.js"]

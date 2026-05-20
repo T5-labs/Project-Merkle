@@ -9,6 +9,7 @@ node_modules/
 
 # Local env files — secrets must not enter the build context.
 # .env.example is safe to include (it has no real secrets).
+.env
 .env.local
 .env.*.local
 .env.production
@@ -22,6 +23,7 @@ node_modules/
 # Logs
 *.log
 npm-debug.log*
+tsconfig.tsbuildinfo
 
 # Documentation (not needed in the runtime image)
 README.md
