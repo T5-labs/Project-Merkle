@@ -371,48 +371,46 @@ function SessionsList() {
   }
 
   return (
-    <div className="w-full">
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) => {
-          setActiveTab(v as 'active' | 'closed');
-          setQuery('');
-        }}
-      >
-        <TabsList className="h-8 px-1 mb-3 w-full">
-          <span className="inline-flex items-center h-7 text-xs font-medium uppercase tracking-wide text-muted-foreground px-3 select-none leading-none flex-1">
-            Sessions
-          </span>
-          <TabsTrigger value="active" className="h-7 px-3 text-sm flex-1">Active ({activeCount})</TabsTrigger>
-          <TabsTrigger value="closed" className="h-7 px-3 text-sm flex-1">Closed ({closedCount})</TabsTrigger>
-        </TabsList>
-        <div className="relative mb-4">
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search sessions…"
-            className="h-11 text-base px-4 bg-card dark:bg-card pr-10"
-            disabled={!currentSessions || currentSessions.length === 0}
-          />
-          {query.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-        <TabsContent value="active" className="mt-0">
-          {renderList()}
-        </TabsContent>
-        <TabsContent value="closed" className="mt-0">
-          {renderList()}
-        </TabsContent>
-      </Tabs>
-    </div>
+    <Tabs
+      value={activeTab}
+      onValueChange={(v) => {
+        setActiveTab(v as 'active' | 'closed');
+        setQuery('');
+      }}
+    >
+      <TabsList className="h-8 px-1 mb-3 w-full border border-border rounded-md">
+        <span className="inline-flex items-center h-7 text-xs font-medium uppercase tracking-wide text-muted-foreground px-3 select-none leading-none flex-1">
+          Sessions
+        </span>
+        <TabsTrigger value="active" className="h-7 px-3 text-sm flex-1">Active ({activeCount})</TabsTrigger>
+        <TabsTrigger value="closed" className="h-7 px-3 text-sm flex-1">Closed ({closedCount})</TabsTrigger>
+      </TabsList>
+      <div className="relative mb-4">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search sessions…"
+          className="h-11 text-base px-4 bg-card dark:bg-card pr-10"
+          disabled={!currentSessions || currentSessions.length === 0}
+        />
+        {query.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            aria-label="Clear search"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+      <TabsContent value="active" className="mt-0">
+        {renderList()}
+      </TabsContent>
+      <TabsContent value="closed" className="mt-0">
+        {renderList()}
+      </TabsContent>
+    </Tabs>
   );
 }
 
