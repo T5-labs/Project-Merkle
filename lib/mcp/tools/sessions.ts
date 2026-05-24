@@ -31,7 +31,11 @@ import { requireMembership, extractTeamId } from "@/lib/mcp/auth";
 import { MCPError } from "@/lib/mcp/errors";
 import { generatePasscode, hashPasscode, verifyPasscode } from "@/lib/passcode";
 import { broadcastSystemMessage } from "@/lib/mcp/broadcast";
-import { deriveStatusFromHeartbeat, sweepStaleParticipants } from "@/lib/mcp/heartbeat";
+import {
+  deriveStatusFromHeartbeat,
+  reactivateIfStaleDropped,
+  sweepStaleParticipants,
+} from "@/lib/mcp/heartbeat";
 import {
   getSessionById,
   insertSession,
@@ -55,6 +59,12 @@ const createSessionSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string(),
   creator_team_name: z.string().min(1).max(200),
+  /**
+   * Optional flag — set true to mark the session as a "support session",
+   * unlocking the support_* tool family and the ticket dropdown UI.
+   * Defaults to false (regular collaborative session).
+   */
+  is_support_session: z.boolean().optional(),
 });
 
 const joinSessionSchema = z.object({
@@ -65,15 +75,23 @@ const joinSessionSchema = z.object({
 
 const leaveSessionSchema = z.object({
   session_id: z.string().uuid(),
+  // The team_id field here is BOTH the auth credential (resolved by
+  // requireMembership) AND the target of the leave action. The "can only leave
+  // yourself" check still applies because the credential and the target are
+  // necessarily the same value.
   team_id: z.string().uuid(),
 });
 
 const listParticipantsSchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
 });
 
 const getSessionSchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
 });
 
 const listSessionsSchema = z.object({
@@ -90,6 +108,8 @@ const searchSessionsSchema = z.object({
 const reopenSessionSchema = z.object({
   session_id: z.string().uuid(),
   reason: z.string().min(1),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
 });
 
 // Shorthand alias matching what the SDK actually passes into tool callbacks.
@@ -178,11 +198,9 @@ Project-Merkle is a shared-session coordination layer for multi-agent teams. Mul
 
 ## Joining a session you were invited to
 
-You received an invitation containing a \`session_id\` and an \`mcp_endpoint\`. If you are running inside Claude Code (HTTP-MCP transport), note that \`.mcp.json\` only supports **static headers** — the \`team_id\` returned by \`join_session\` cannot be dynamically injected without editing the config and restarting. Follow the four steps below.
+You received an invitation containing a \`session_id\`, \`passcode\`, and \`mcp_endpoint\`. Register via curl, then use the merkle MCP tools with \`team_id\` in the arguments of every call. No config edits or restarts required. Approximate time: 30 seconds.
 
-**Step 1 — Register via curl (do not use an MCP tool yet — your transport has no auth header).**
-
-Pick a \`team_name\` and run (include the \`passcode\` from your invitation):
+**Step 1 — Register via curl.** Pick a \`team_name\` and run:
 
 \`\`\`
 curl -X POST <mcp_endpoint> \
@@ -193,23 +211,7 @@ curl -X POST <mcp_endpoint> \
 
 Save the \`team_id\` UUID from the response.
 
-**Step 2 — Persist the \`team_id\` into \`.mcp.json\` in the user's working directory.** Merge with any existing \`mcpServers\` entries — do not overwrite other servers:
-
-\`\`\`json
-{
-  "mcpServers": {
-    "merkle": {
-      "type": "http",
-      "url": "<mcp_endpoint>",
-      "headers": { "X-Team-ID": "<your_team_id>" }
-    }
-  }
-}
-\`\`\`
-
-**Step 3 — Ask the user to restart Claude Code** so the updated \`.mcp.json\` is loaded and the \`X-Team-ID\` header is sent on every subsequent MCP request.
-
-**Step 4 — After restart**, the \`merkle__\` prefixed tools are available with auth. Call \`merkle__wait_for_messages({ session_id: "<session_id>", since_cursor: 0 })\` to enter the feed. Call \`merkle__get_app_info()\` for a full tool reference. Store the \`cursor\` from each response and pass it as \`since_cursor\` in the next poll.
+**Step 2 —** Call \`merkle__wait_for_messages({ session_id: "<session_id>", team_id: "<your_team_id>", since_cursor: 0 })\` to enter the feed. From now on, include \`team_id\` in the arguments of every \`merkle__\` tool call. Call \`merkle__get_app_info({ team_id: "<your_team_id>" })\` for a full tool reference. Store the \`cursor\` from each response and pass it as \`since_cursor\` in the next poll.
 
 ## Tool surface at a glance
 
@@ -220,7 +222,7 @@ Save the \`team_id\` UUID from the response.
 - \`list_sessions\` — list active (or all) sessions without auth.
 - \`search_sessions\` — find a session by title/description substring.
 
-**Session state (auth required — X-Team-ID header)**
+**Session state (auth required — pass team_id in arguments)**
 - \`get_session\` — fetch session metadata (title, description, status).
 - \`list_participants\` — fetch the current team roster with presence status.
 - \`leave_session\` — soft-remove yourself from the session.
@@ -228,12 +230,12 @@ Save the \`team_id\` UUID from the response.
 - \`conclude_session\` — close the session and write a conclusion into the doc.
 - \`reopen_session\` — reopen a closed session (creator only; reason required).
 
-**Feed (auth required)**
+**Feed (auth required — pass team_id in arguments)**
 - \`wait_for_messages\` — long-poll for new messages after a cursor (also your heartbeat).
 - \`post_message\` — post a chat message; content must be \`{ "text": "..." }\`.
 - \`get_history\` — paginated backwards read of feed history.
 
-**Document (auth required)**
+**Document (auth required — pass team_id in arguments)**
 - \`read_session_doc\` — read the current shared markdown document and its version.
 - \`update_session_doc\` — full document replace with optimistic concurrency (pass \`expected_version\`).
 - \`append_to_session_doc\` — server-atomic append; no version token needed; prefer this for additive notes.
@@ -241,11 +243,11 @@ Save the \`team_id\` UUID from the response.
 
 ## Auth model
 
-Only \`get_app_info\`, \`create_session\`, \`join_session\`, \`list_sessions\`, and \`search_sessions\` are unauthenticated. All other tools require the \`X-Team-ID\` header to be set to your \`team_id\` (the UUID returned by \`join_session\` or \`create_session\`).
+Only \`get_app_info\`, \`create_session\`, \`join_session\`, \`list_sessions\`, and \`search_sessions\` are unauthenticated. All other tools require a \`team_id\` argument (the UUID returned by \`join_session\` or \`create_session\`). Pass \`team_id\` in the \`arguments\` of every authenticated tool call — no header configuration or restart needed.
 
 ## The polling loop
 
-\`wait_for_messages\` is both your message stream and your heartbeat. Call it continuously with the cursor returned by the previous call. An empty response after 30 s is normal — re-poll with the same cursor. When \`session_closed: true\` is returned, read the final document with \`read_session_doc\` and then exit cleanly.
+\`wait_for_messages\` is both your message stream and your heartbeat. Call it continuously with the cursor returned by the previous call, always including \`team_id\` in the arguments. An empty response after 30 s is normal — re-poll with the same cursor. When \`session_closed: true\` is returned, read the final document with \`read_session_doc\` and then exit cleanly.
 
 ## Norms
 
@@ -277,7 +279,8 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
       input: z.infer<typeof createSessionSchema>,
       _extra: HandlerExtra,
     ) => {
-      const { title, description, creator_team_name } = input;
+      const { title, description, creator_team_name, is_support_session } =
+        input;
 
       // Generate the convener's team_id up front so we can set
       // created_by_team_id on the session row in the same step.
@@ -290,11 +293,13 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
 
       // Insert the session row. created_by_team_id is a logical reference to
       // the participant row we insert immediately below — no FK constraint.
+      // is_support_session is immutable post-create and defaults to false.
       const session = await insertSession({
         title,
         description,
         createdByTeamId: teamId,
         passcodeHash,
+        isSupportSession: is_support_session ?? false,
       });
 
       // Register the convener as a participant with the pre-generated teamId.
@@ -350,9 +355,11 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
         throw new MCPError("not_found", "Session not found");
       }
 
-      // Bypass check: if the X-Team-ID header points at a team that is already
-      // a participant of THIS session, allow re-entry without the passcode and
-      // return their existing team_id (no duplicate row created).
+      // Bypass check: if the caller already has a team_id (from the X-Team-ID
+      // header — args-based team_id is not supported on join_session because
+      // the schema doesn't include it) that maps to a participant of THIS
+      // session, allow re-entry without the passcode and return their existing
+      // team_id (no duplicate row created).
       const headerTeamId = extractTeamId(extra);
       if (headerTeamId) {
         const existing = await getParticipant(session_id, headerTeamId);
@@ -437,8 +444,10 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
     ) => {
       const { session_id, team_id } = input;
 
-      // Validate the X-Team-ID header and confirm active membership.
-      const participant = await requireMembership(extra, session_id);
+      // Validate the caller's team_id (args-first, then X-Team-ID header) and
+      // confirm active membership. The `team_id` body field IS the credential
+      // in the new args-based auth flow.
+      const participant = await requireMembership(extra, session_id, team_id);
 
       // A team may only remove itself — prevent one team from kicking another.
       if (participant.teamId !== team_id) {
@@ -479,19 +488,40 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
       input: z.infer<typeof listParticipantsSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id } = input;
+      const { session_id, team_id } = input;
 
-      // Validate membership and get the caller's participant row.
-      const callerParticipant = await requireMembership(extra, session_id);
+      // Validate membership (args-first team_id, header fallback) and get the
+      // caller's participant row.
+      const callerParticipant = await requireMembership(
+        extra,
+        session_id,
+        team_id,
+      );
 
       // Touch heartbeat to record that this team is still active.
       await touchParticipantHeartbeat(session_id, callerParticipant.teamId);
 
+      // Fix C: if the caller's row was disconnected by a prior sweep, flip it
+      // back to active and broadcast team_rejoined. Best-effort — a failure
+      // here must not block the read.
+      try {
+        await reactivateIfStaleDropped(
+          session_id,
+          callerParticipant.teamId,
+          callerParticipant.teamName,
+          callerParticipant.status,
+        );
+      } catch (err) {
+        console.error("[list_participants] reactivate error (ignored):", err);
+      }
+
       // Lazy sweep: flip stale-active participants to disconnected before reading
       // the roster, so the returned data reflects up-to-date presence state.
+      // Fix B: exclude the caller's own team — they just heartbeated, so the
+      // sweep must never target them in this same handler.
       // Best-effort — a sweep failure must not block the read.
       try {
-        await sweepStaleParticipants(session_id);
+        await sweepStaleParticipants(session_id, callerParticipant.teamId);
       } catch (err) {
         console.error("[list_participants] sweep error (ignored):", err);
       }
@@ -524,18 +554,36 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
       input: z.infer<typeof getSessionSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id } = input;
+      const { session_id, team_id } = input;
 
-      // Validate membership — only session members may read metadata.
-      const callerParticipant = await requireMembership(extra, session_id);
+      // Validate membership (args-first team_id, header fallback) — only
+      // session members may read metadata.
+      const callerParticipant = await requireMembership(
+        extra,
+        session_id,
+        team_id,
+      );
 
       // Touch heartbeat to record that this team is still active.
       await touchParticipantHeartbeat(session_id, callerParticipant.teamId);
 
+      // Fix C: reactivate caller if they were swept; best-effort.
+      try {
+        await reactivateIfStaleDropped(
+          session_id,
+          callerParticipant.teamId,
+          callerParticipant.teamName,
+          callerParticipant.status,
+        );
+      } catch (err) {
+        console.error("[get_session] reactivate error (ignored):", err);
+      }
+
       // Lazy sweep: flip stale-active participants before returning session state.
+      // Fix B: exclude the caller from the sweep — they just heartbeated.
       // Best-effort — a sweep failure must not block the read.
       try {
-        await sweepStaleParticipants(session_id);
+        await sweepStaleParticipants(session_id, callerParticipant.teamId);
       } catch (err) {
         console.error("[get_session] sweep error (ignored):", err);
       }
@@ -555,6 +603,12 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
         closed_at: session.closedAt ? session.closedAt.toISOString() : null,
         session_doc_version: session.sessionDocVersion,
         created_by_team_id: session.createdByTeamId,
+        // Support-session metadata — additive, JSON-safe defaults so existing
+        // consumers don't break. is_support_session is the immutable flag set
+        // at create time; selected_ticket_key is null when no ticket is
+        // selected (always null for non-support sessions).
+        is_support_session: session.isSupportSession,
+        selected_ticket_key: session.selectedTicketKey,
       };
 
       return {
@@ -624,12 +678,16 @@ For the full protocol spec, see AGENTS.md at the repository root.`;
       input: z.infer<typeof reopenSessionSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id, reason } = input;
+      const { session_id, reason, team_id } = input;
 
-      // Validate that the caller is authenticated and holds a team_id header.
-      const callerTeamId = extractTeamId(extra);
+      // Validate that the caller is authenticated (args-first team_id, header
+      // fallback).
+      const callerTeamId = extractTeamId(extra, team_id);
       if (!callerTeamId) {
-        throw new MCPError("unauthorized", "X-Team-ID header required");
+        throw new MCPError(
+          "unauthorized",
+          "team_id required (pass team_id in arguments, or set the X-Team-ID header)",
+        );
       }
 
       // Fetch the session — 404 if not found.

@@ -81,6 +81,10 @@ export interface GetSessionResult {
   closed_at: string | null;
   session_doc_version: number;
   created_by_team_id?: string;
+  /** Added by SWE-3 in Wave 2 — present once the API surfaces the field. */
+  is_support_session?: boolean;
+  /** Added by SWE-3 in Wave 2 — present once the API surfaces the field. */
+  selected_ticket_key?: string | null;
 }
 
 // --- Feed tools ---
@@ -217,6 +221,7 @@ export function useCreateSession() {
       title: string;
       description: string;
       creator_team_name: string;
+      is_support_session?: boolean;
     }): Promise<CreateSessionResult> => {
       return mcpCall<CreateSessionResult>('create_session', args);
     },
@@ -506,6 +511,97 @@ export interface UseMessageStreamResult {
   sessionClosed: boolean;
   isIdle: boolean;
   error: Error | null;
+}
+
+// ---------------------------------------------------------------------------
+// Support session — ticket hooks
+// ---------------------------------------------------------------------------
+
+export interface TicketRow {
+  key: string;
+  project: string;
+  number: string;
+  pushed_at: string;
+}
+
+export interface AvailableTicketsResult {
+  tickets: TicketRow[];
+}
+
+export interface SelectedTicketResult {
+  key: string | null;
+  project?: string;
+  number?: string;
+}
+
+/**
+ * Fetches the list of tickets available for a support session.
+ * Calls GET /api/sessions/[id]/tickets with X-Team-ID.
+ * Refetches every 10s as a fallback (the session page also invalidates
+ * on support_tickets_updated system events).
+ */
+export function useAvailableTickets(sessionId: string) {
+  const teamId = getTeamId(sessionId);
+  return useQuery({
+    queryKey: ['support_tickets', sessionId],
+    queryFn: async (): Promise<AvailableTicketsResult> => {
+      const headers: Record<string, string> = {};
+      if (teamId) headers['X-Team-ID'] = teamId;
+      const res = await fetch(`/api/sessions/${sessionId}/tickets`, { headers });
+      if (!res.ok) throw new Error(`Failed to fetch tickets: ${res.status}`);
+      return res.json() as Promise<AvailableTicketsResult>;
+    },
+    refetchInterval: 10_000,
+    enabled: !!sessionId,
+  });
+}
+
+/**
+ * Fetches the currently selected ticket for a support session.
+ * Calls GET /api/sessions/[id]/selected-ticket with X-Team-ID.
+ * Refetches every 10s as a fallback (the session page also invalidates
+ * on support_ticket_selected system events).
+ */
+export function useSelectedTicket(sessionId: string) {
+  const teamId = getTeamId(sessionId);
+  return useQuery({
+    queryKey: ['support_selected_ticket', sessionId],
+    queryFn: async (): Promise<SelectedTicketResult> => {
+      const headers: Record<string, string> = {};
+      if (teamId) headers['X-Team-ID'] = teamId;
+      const res = await fetch(`/api/sessions/${sessionId}/selected-ticket`, { headers });
+      if (!res.ok) throw new Error(`Failed to fetch selected ticket: ${res.status}`);
+      return res.json() as Promise<SelectedTicketResult>;
+    },
+    refetchInterval: 10_000,
+    enabled: !!sessionId,
+  });
+}
+
+/**
+ * Mutation to set (or clear) the selected ticket for a support session.
+ * Calls PATCH /api/sessions/[id]/selected-ticket with body { ticket_key }.
+ * Invalidates the selected-ticket query on success.
+ */
+export function useSetSelectedTicket(sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { ticket_key: string | null }): Promise<SelectedTicketResult> => {
+      const teamId = getTeamId(sessionId);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (teamId) headers['X-Team-ID'] = teamId;
+      const res = await fetch(`/api/sessions/${sessionId}/selected-ticket`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(args),
+      });
+      if (!res.ok) throw new Error(`Failed to set selected ticket: ${res.status}`);
+      return res.json() as Promise<SelectedTicketResult>;
+    },
+    onSuccess() {
+      void queryClient.invalidateQueries({ queryKey: ['support_selected_ticket', sessionId] });
+    },
+  });
 }
 
 export function useMessageStream(sessionId: string): UseMessageStreamResult {

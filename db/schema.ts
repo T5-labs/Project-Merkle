@@ -30,6 +30,7 @@
 import { relations } from "drizzle-orm";
 import {
   bigserial,
+  boolean,
   index,
   integer,
   jsonb,
@@ -126,6 +127,12 @@ export const sessions = pgTable("sessions", {
    * never stored in plaintext.
    */
   passcodeHash: text("passcode_hash").notNull(),
+
+  /** Immutable post-create flag; gates which prompt template the joining agent uses. */
+  isSupportSession: boolean("is_support_session").notNull().default(false),
+
+  /** Format `"<PROJECT>/<NUMBER>"`; only meaningful when isSupportSession=true. */
+  selectedTicketKey: varchar("selected_ticket_key", { length: 128 }),
 });
 
 // ---------------------------------------------------------------------------
@@ -272,6 +279,36 @@ export const sessionDocHistory = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// support_ticket_options
+// ---------------------------------------------------------------------------
+
+/**
+ * Candidate Obsidian tickets pushed to a support session. The convener pushes a
+ * set, then selects exactly one (mirrored to sessions.selectedTicketKey).
+ * Composite PK on (sessionId, ticketKey) — re-pushing the same key updates the
+ * row's pushedAt/pushedByTeamId rather than duplicating.
+ */
+export const supportTicketOptions = pgTable(
+  "support_ticket_options",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    ticketKey: varchar("ticket_key", { length: 128 }).notNull(),
+    project: varchar("project", { length: 64 }).notNull(),
+    number: varchar("number", { length: 64 }).notNull(),
+    pushedAt: timestamp("pushed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    pushedByTeamId: uuid("pushed_by_team_id").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sessionId, t.ticketKey] }),
+    index("support_ticket_options_session_idx").on(t.sessionId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Drizzle relations — enable join helpers in queries
 // ---------------------------------------------------------------------------
 
@@ -279,6 +316,7 @@ export const sessionsRelations = relations(sessions, ({ many }) => ({
   participants: many(participants),
   messages: many(messages),
   sessionDocHistory: many(sessionDocHistory),
+  supportTicketOptions: many(supportTicketOptions),
 }));
 
 export const participantsRelations = relations(participants, ({ one }) => ({
@@ -305,6 +343,16 @@ export const sessionDocHistoryRelations = relations(
   }),
 );
 
+export const supportTicketOptionsRelations = relations(
+  supportTicketOptions,
+  ({ one }) => ({
+    session: one(sessions, {
+      fields: [supportTicketOptions.sessionId],
+      references: [sessions.id],
+    }),
+  }),
+);
+
 // ---------------------------------------------------------------------------
 // Inferred TypeScript types — use these throughout the app
 // ---------------------------------------------------------------------------
@@ -320,6 +368,9 @@ export type NewMessage = typeof messages.$inferInsert;
 
 export type SessionDocHistory = typeof sessionDocHistory.$inferSelect;
 export type NewSessionDocHistory = typeof sessionDocHistory.$inferInsert;
+
+export type SupportTicketOption = typeof supportTicketOptions.$inferSelect;
+export type NewSupportTicketOption = typeof supportTicketOptions.$inferInsert;
 
 /**
  * A single image attachment stored as raw base64 in messages.attachments.

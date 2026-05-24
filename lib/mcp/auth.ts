@@ -7,9 +7,16 @@
  * RequestHandlerExtra.requestInfo field (type RequestInfo from the SDK's types.d.ts).
  * requestInfo.headers is typed as IsomorphicHeaders = Record<string, string | string[] | undefined>.
  *
+ * Team-id resolution order (v0.12+):
+ *   1. `team_id` argument carried inside the tool call's JSON-RPC arguments
+ *      (primary path — eliminates the static-header restart requirement for
+ *      Claude Code's HTTP-MCP transport).
+ *   2. `X-Team-ID` HTTP header (backward-compat fallback for clients that
+ *      already configured a static header in `.mcp.json`).
+ *
  * Usage inside a tool handler:
  *   server.tool('my_tool', schema, async (args, extra) => {
- *     const participant = await requireMembership(extra, args.session_id);
+ *     const participant = await requireMembership(extra, args.session_id, args.team_id);
  *     // participant is fully typed Participant row
  *   });
  */
@@ -28,18 +35,34 @@ import type { Participant } from "@/db/schema";
 export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
 // ---------------------------------------------------------------------------
-// Header extraction
+// Team-id extraction
 // ---------------------------------------------------------------------------
 
 /**
- * Extracts the X-Team-ID header from the MCP tool call's request context.
- * Returns the header value as a string, or null if absent.
+ * Resolves the caller's team_id from (in priority order) the tool call's
+ * `team_id` argument, then the `X-Team-ID` HTTP header. Returns null if
+ * neither source provides a value.
+ *
+ * The args-first path is the v0.12 primary auth source — agents pass team_id
+ * in their JSON-RPC arguments so they no longer need to edit `.mcp.json` and
+ * restart Claude Code after `join_session`. The header path is preserved as a
+ * backward-compat fallback for clients that already configured a static
+ * header.
  *
  * The SDK passes the original HTTP request headers via extra.requestInfo.headers
  * (IsomorphicHeaders). Header names from the HTTP layer are lowercased by the
  * SDK's Web Standard transport before being placed into this map.
  */
-export function extractTeamId(extra: ToolExtra): string | null {
+export function extractTeamId(
+  extra: ToolExtra,
+  argsTeamId?: string | null,
+): string | null {
+  // 1. Args-side team_id wins when present (new primary path).
+  if (argsTeamId && typeof argsTeamId === "string" && argsTeamId.length > 0) {
+    return argsTeamId;
+  }
+
+  // 2. Fall back to the X-Team-ID header for legacy header-configured clients.
   const headers = extra.requestInfo?.headers;
   if (!headers) return null;
 
@@ -94,21 +117,28 @@ const reasonToCode: Record<string, ErrorCode> = {
 };
 
 /**
- * Convenience wrapper: extracts the team_id header, validates membership, and
- * returns the Participant row on success. Throws MCPError on any failure so
- * tool handlers can call this as a single auth guard.
+ * Convenience wrapper: extracts the caller's team_id (args first, then header),
+ * validates membership, and returns the Participant row on success. Throws
+ * MCPError on any failure so tool handlers can call this as a single auth
+ * guard.
+ *
+ * `argsTeamId` is the optional `team_id` field from the tool call's input
+ * arguments. Tool handlers should pass `input.team_id` through; when present
+ * it supersedes the X-Team-ID header.
  */
 export async function requireMembership(
   extra: ToolExtra,
   sessionId: string,
+  argsTeamId?: string | null,
 ): Promise<Participant> {
-  const teamId = extractTeamId(extra);
+  const teamId = extractTeamId(extra, argsTeamId);
   const result = await validateMembership(teamId, sessionId);
 
   if (!result.valid) {
     const code = reasonToCode[result.reason] ?? "unauthorized";
     const messages: Record<string, string> = {
-      unauthorized: "Missing or invalid X-Team-ID for this session",
+      unauthorized:
+        "Missing or invalid team_id (pass team_id in arguments, or set the X-Team-ID header) for this session",
       not_found: "Session not found",
       session_closed: "Session is closed",
     };

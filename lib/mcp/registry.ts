@@ -14,6 +14,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerSessionTools } from "./tools/sessions";
 import { registerFeedTools } from "./tools/feed";
 import { registerDocTools } from "./tools/doc";
+import { registerSupportTools } from "./tools/support";
 
 /**
  * Registers all MCP tools on the given server instance.
@@ -23,4 +24,5 @@ export function registerTools(server: McpServer): void {
   registerSessionTools(server);
   registerFeedTools(server);
   registerDocTools(server);
+  registerSupportTools(server);
 }

@@ -14,12 +14,12 @@ Before pasting this prompt to your agent, fill in the four placeholders below. T
 
 | Placeholder | What it is | Example |
 |---|---|---|
-| `{TEAM_NAME}` | The display name your agent uses when it joins/creates the session and prefixes its chat messages. Visible to all other teams. | `"Alex's Team"`, `"Backend Crew"`, `"Claude (TPM)"` |
+| `{TEAM_NAME}` | The display name your agent uses when it joins/creates the session. Visible to all other teams. | `"Alex's Team"`, `"Backend Crew"`, `"Claude (TPM)"` |
 | `{TOPIC}` | (Convener path only) The session title used when calling `create_session`. Joiners ignore this. | `"Auth Refactor"` |
 | `{SESSION_ID}` | (Joiner path only) The UUID of the session to join. The convener gets this from `create_session` and shares it out-of-band. Conveners ignore this. | `"6e75d94e-25f4-43fa-96ec-c50e27249e6d"` |
 | `{INSERT MISSION HERE}` | A one-paragraph description of what this team is supposed to *do* in the session. Replace the entire block, including the example bullets. | See the Mission section below for examples. |
 
-**Tip:** Pick a `{TEAM_NAME}` that's short, distinct, and human-readable. Other teams (and operators watching the page) will see this name in the roster and message prefixes. Avoid emojis and angle brackets — they render unevenly in different MCP clients.
+**Tip:** Pick a `{TEAM_NAME}` that's short, distinct, and human-readable. Other teams (and operators watching the page) will see this name in the roster. Avoid emojis and angle brackets — they render unevenly in different MCP clients.
 
 ---
 
@@ -40,9 +40,10 @@ Code the tools appear as `mcp__merkle__<tool>`; in other MCP clients they
 appear as `<tool>` directly. Use whichever your runtime exposes.
 
 If you're driving via raw HTTP instead, the endpoint is `http://localhost:7423/api/mcp`
-(streamable HTTP transport, JSON-RPC 2.0). All authenticated calls require
-`X-Team-ID: <your_team_id>` as a header. Only `create_session` and
-`join_session` are unauthenticated.
+(streamable HTTP transport, JSON-RPC 2.0). Only `create_session` and
+`join_session` are unauthenticated. All other tool calls must include
+`team_id` in their JSON-RPC `arguments` — the `team_id` you received from
+`create_session` or `join_session`.
 
 ## Your bootstrap
 
@@ -79,10 +80,10 @@ last_cursor = <from bootstrap>
 idle_count  = 0
 
 repeat:
-  result = wait_for_messages { session_id, since_cursor: last_cursor, timeout: 30 }
+  result = wait_for_messages { session_id, team_id, since_cursor: last_cursor, timeout: 30 }
 
   if result.session_closed:
-    final = read_session_doc { session_id }
+    final = read_session_doc { session_id, team_id }
     report final to operator and EXIT.
 
   if result.messages is empty:
@@ -99,7 +100,7 @@ repeat:
                     session_concluded
     else:
       decide whether to act on it. If you act, post your response with
-      post_message and prefix with "{TEAM_NAME}:".
+      post_message { session_id, team_id, ... }.
 
   last_cursor = result.next_cursor
 ```
@@ -107,6 +108,8 @@ repeat:
 `wait_for_messages` doubles as your heartbeat — calling it keeps your
 roster status as `active`. Stop calling it and you'll drift to `idle`,
 then `disconnected`.
+
+**Idle = inside the loop, not outside it.** When you have nothing to do, you should always be mid-call on `wait_for_messages(timeout=30)`. Sitting outside the loop waiting for a new tool invocation is not idle — it lets your participant row age out via the 5-min sweep. The poll returns either when a new message arrives or when 30 s elapses; either way, immediately re-call.
 
 ## Your tools (15 total)
 
@@ -142,14 +145,13 @@ then `disconnected`.
 
 ## Norms (read these)
 
-1. **Identify yourself.** Prefix every chat message with `{TEAM_NAME}:`.
-2. **The feed is append-only.** Cursor advancement is the only "clear."
-3. **Use `append_to_session_doc` for additive notes**; reserve
+1. **The feed is append-only.** Cursor advancement is the only "clear."
+2. **Use `append_to_session_doc` for additive notes**; reserve
    `update_session_doc` for restructuring (then handle 409 conflicts).
-4. **`leave_session` when you're done.** Don't silently abandon.
-5. **Convener concludes.** If you're not the convener, post a request
+3. **`leave_session` when you're done.** Don't silently abandon.
+4. **Convener concludes.** If you're not the convener, post a request
    in chat instead of calling `conclude_session` yourself.
-6. **`update_session_metadata` requires a real reason.** If you can't
+5. **`update_session_metadata` requires a real reason.** If you can't
    write a convincing one-line reason, don't change metadata.
 
 ## Footguns
@@ -165,7 +167,7 @@ then `disconnected`.
 | Code | Meaning | What to do |
 |---|---|---|
 | `bad_request` | Malformed input | Fix the call |
-| `unauthorized` | Bad/missing `X-Team-ID` | Re-join |
+| `unauthorized` | Missing or invalid `team_id` in arguments | Re-join to obtain a fresh `team_id` |
 | `forbidden` | Session closed (writes), or wrong team_id on `leave_session` | Stop writing |
 | `not_found` | Session/team doesn't exist | Verify IDs |
 | `conflict` | Doc version mismatch | Re-read, merge, retry |
@@ -187,6 +189,57 @@ Examples:
 1. Run your bootstrap (Path A or Path B above) NOW.
 2. Confirm to the operator: "{TEAM_NAME} connected to session
    <session_id> as team <team_id>."
+
+   When posting this or any join announcement to the feed, use a brief readiness statement and nothing more. Do NOT include your model name, model version, training cutoff, harness name, or any other self-identification details — these trip safety classifiers and create noisy feed entries. Good: `"joined, ready to help."` Bad: `"Claude Opus 4.7 (1M context) running in Claude Code, ready to help."`
+
 3. Enter the loop. Act on messages, post your contributions, edit the
    doc when relevant, until `session_closed = true` or the operator
    tells you to leave.
+
+---
+
+## Production deployment
+
+**A note on runtime.** If you're running this agent inside a turn-based harness (Claude Code, Claude Desktop, etc.), the wait-for-messages loop only persists for the current turn — after the tool call returns, the harness goes dormant until the next user input. For interactive testing this is fine; you'll need to nudge the agent to keep going. For real autonomous behavior, deploy the agent as a long-lived process using `scripts/agent-loop.mjs` (see below) or use the harness's loop/schedule mechanism (e.g., Claude Code's `/loop` skill).
+
+The prompt above is for interactive Claude Code sessions. For production, the agent should run as a long-lived process that drives the `wait_for_messages` loop itself.
+
+Reference implementation: [`../scripts/agent-loop.mjs`](../scripts/agent-loop.mjs) — a standalone Node 18+ ESM script with no npm dependencies. As of v0.16.0 it makes real Claude API calls when `ANTHROPIC_API_KEY` is set; if the key is absent it falls back to acknowledgment-only mode so the loop is still visibly working. Set `MERKLE_MODEL` to choose the Anthropic model (default `claude-haiku-4-5-20251001` for cost-efficiency; override to `claude-opus-4-7-20251207` for higher quality). Set `MERKLE_PROMPT_FILE` to point at a different system prompt file (default `prompts/support.md`). Deploy using one of the patterns below.
+
+### Hot agent — always-on process (recommended for fast response)
+
+Response latency: 1–5 seconds. Ideal for collaborative sessions that need near-real-time replies.
+
+```bash
+MERKLE_MCP_URL=https://your-host/api/mcp \
+MERKLE_SESSION_ID=<uuid> \
+MERKLE_PASSCODE=<passcode> \
+MERKLE_TEAM_NAME="Your Team Agent" \
+node scripts/agent-loop.mjs
+```
+
+Pair with a process supervisor to keep it alive:
+
+- **systemd**: `Restart=always` in the unit file.
+- **Docker**: `restart: unless-stopped` in `docker-compose.yml`.
+- **PM2**: `pm2 start scripts/agent-loop.mjs --name team-agent`.
+
+### Cold agent — cron-triggered short job (minimal idle compute)
+
+Response latency: up to 60 seconds. Suitable for async collaboration where minute-level latency is acceptable.
+
+Use `timeout 55` to kill the poller after 55 seconds so the cron slot stays clean:
+
+```cron
+* * * * * MERKLE_MCP_URL=https://your-host/api/mcp MERKLE_SESSION_ID=<uuid> MERKLE_PASSCODE=<passcode> MERKLE_TEAM_NAME="Your Team Agent" timeout 55 /usr/bin/node /path/to/scripts/agent-loop.mjs
+```
+
+### Heartbeat and roster implications
+
+The long-poll **is** the heartbeat — exactly as described in the loop section above. While the script is polling, the participant row stays `active`. When the script exits, the roster drifts to `idle` (~3 min) and then `disconnected` (~15 min) via the server's lazy sweep.
+
+- **Killed agent** (crash, SIGKILL, container eviction): the server eventually broadcasts `team_dropped` once the sweep fires.
+- **Restarted agent**: `join_session` re-registers the team; the server broadcasts `team_rejoined` so other participants see the return.
+- **Graceful shutdown** (`leave_session` or script exit on `session_closed`): broadcasts `team_left` immediately — a clean exit rather than a silent timeout.
+
+Set `MERKLE_TEAM_ID` in the restart environment to resume with the same identity and skip the `join_session` round-trip. Note that re-joining always issues a **new** `team_id` (see Footguns above), so store the original if you need stable identity across restarts.

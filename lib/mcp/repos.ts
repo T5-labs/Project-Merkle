@@ -9,20 +9,23 @@
  */
 import "server-only";
 
-import { and, desc, eq, gt, ilike, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/index";
 import {
   messages,
   participants,
   sessionDocHistory,
   sessions,
+  supportTicketOptions,
   type Attachment,
   type Message,
   type NewMessage,
   type NewParticipant,
   type NewSession,
+  type NewSupportTicketOption,
   type Participant,
   type Session,
+  type SupportTicketOption,
 } from "@/db/schema";
 import { MCPError } from "@/lib/mcp/errors";
 
@@ -485,5 +488,184 @@ export async function recordSessionDocHistory(
     version,
     content,
     writtenByTeamId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Support sessions
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the support-session flag and currently-selected ticket key for the
+ * given session, or null if the session does not exist.
+ */
+export async function getSupportSessionState(
+  sessionId: string,
+): Promise<{
+  isSupportSession: boolean;
+  selectedTicketKey: string | null;
+} | null> {
+  const rows = await db
+    .select({
+      isSupportSession: sessions.isSupportSession,
+      selectedTicketKey: sessions.selectedTicketKey,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Replaces the full set of pushed ticket options for a session in a single
+ * transaction: deletes the existing rows, then bulk-inserts the new rows.
+ *
+ * If the session's previously-selected ticket key is not present in the new
+ * rows, also clears sessions.selected_ticket_key in the same transaction. The
+ * caller is expected to broadcast a support_ticket_selected event with
+ * ticket_key=null when clearedSelection is true.
+ *
+ * Passing an empty rows array is allowed — it deletes all options and (when
+ * appropriate) clears the selection; returns count=0.
+ */
+export async function replaceSupportTicketOptions(
+  sessionId: string,
+  rows: NewSupportTicketOption[],
+): Promise<{
+  count: number;
+  clearedSelection: boolean;
+  previousSelection: string | null;
+}> {
+  return db.transaction(async (tx) => {
+    // Read current selection up front so we can decide whether to clear it.
+    const sessionRows = await tx
+      .select({ selectedTicketKey: sessions.selectedTicketKey })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1);
+    if (!sessionRows[0]) {
+      throw new MCPError("not_found", "Session not found");
+    }
+    const previousSelection = sessionRows[0].selectedTicketKey;
+
+    // Truncate-and-insert the option set for this session only.
+    await tx
+      .delete(supportTicketOptions)
+      .where(eq(supportTicketOptions.sessionId, sessionId));
+
+    if (rows.length > 0) {
+      // Force the sessionId on every row to guard against caller mismatch.
+      await tx
+        .insert(supportTicketOptions)
+        .values(rows.map((r) => ({ ...r, sessionId })));
+    }
+
+    // If the prior selection is no longer in the option set, null it out.
+    const newKeys = rows.map((r) => r.ticketKey);
+    const clearedSelection =
+      previousSelection !== null && !newKeys.includes(previousSelection);
+
+    if (clearedSelection) {
+      await tx
+        .update(sessions)
+        .set({ selectedTicketKey: null })
+        .where(eq(sessions.id, sessionId));
+    }
+
+    return {
+      count: rows.length,
+      clearedSelection,
+      previousSelection,
+    };
+  });
+}
+
+/**
+ * Returns all pushed ticket options for the session ordered by project ASC,
+ * number ASC. Empty array if none exist.
+ */
+export async function listSupportTicketOptions(
+  sessionId: string,
+): Promise<SupportTicketOption[]> {
+  return db
+    .select()
+    .from(supportTicketOptions)
+    .where(eq(supportTicketOptions.sessionId, sessionId))
+    .orderBy(asc(supportTicketOptions.project), asc(supportTicketOptions.number));
+}
+
+/**
+ * Returns the single support_ticket_options row matching (sessionId, ticketKey),
+ * or null if no such row exists. Used to validate selections before mirroring
+ * to sessions.selected_ticket_key.
+ */
+export async function findSupportTicketOption(
+  sessionId: string,
+  ticketKey: string,
+): Promise<SupportTicketOption | null> {
+  const rows = await db
+    .select()
+    .from(supportTicketOptions)
+    .where(
+      and(
+        eq(supportTicketOptions.sessionId, sessionId),
+        eq(supportTicketOptions.ticketKey, ticketKey),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Sets (or clears) sessions.selected_ticket_key for the given session. When
+ * ticketKey is non-null, validates that it exists in support_ticket_options
+ * for this session and throws MCPError('not_found') otherwise. Returns the
+ * previous and new values for use in event payloads.
+ *
+ * _byTeamId is reserved for future audit logging — accepted but not used yet.
+ */
+export async function setSelectedSupportTicket(
+  sessionId: string,
+  ticketKey: string | null,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _byTeamId: string,
+): Promise<{ previousKey: string | null; newKey: string | null }> {
+  return db.transaction(async (tx) => {
+    const sessionRows = await tx
+      .select({ selectedTicketKey: sessions.selectedTicketKey })
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1);
+    if (!sessionRows[0]) {
+      throw new MCPError("not_found", "Session not found");
+    }
+    const previousKey = sessionRows[0].selectedTicketKey;
+
+    if (ticketKey !== null) {
+      const optionRows = await tx
+        .select({ ticketKey: supportTicketOptions.ticketKey })
+        .from(supportTicketOptions)
+        .where(
+          and(
+            eq(supportTicketOptions.sessionId, sessionId),
+            eq(supportTicketOptions.ticketKey, ticketKey),
+          ),
+        )
+        .limit(1);
+      if (!optionRows[0]) {
+        throw new MCPError(
+          "not_found",
+          "Ticket key not in this session's pushed options",
+          { ticketKey },
+        );
+      }
+    }
+
+    await tx
+      .update(sessions)
+      .set({ selectedTicketKey: ticketKey })
+      .where(eq(sessions.id, sessionId));
+
+    return { previousKey, newKey: ticketKey };
   });
 }

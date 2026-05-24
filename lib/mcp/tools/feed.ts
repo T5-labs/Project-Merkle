@@ -32,7 +32,10 @@ import {
   getMessagesBefore,
   touchParticipantHeartbeat,
 } from "@/lib/mcp/repos";
-import { sweepStaleParticipants } from "@/lib/mcp/heartbeat";
+import {
+  reactivateIfStaleDropped,
+  sweepStaleParticipants,
+} from "@/lib/mcp/heartbeat";
 import type { Attachment, Message } from "@/db/schema";
 
 // Shorthand alias for the extra type used in all handlers.
@@ -44,6 +47,8 @@ type HandlerExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
 const postMessageSchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
   // content is the chat payload: { text: string }
   content: z.object({ text: z.string() }).strict(),
   // type is optional; only "chat" is allowed for agents
@@ -62,6 +67,8 @@ const postMessageSchema = z.object({
 
 const waitForMessagesSchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
   // since_cursor is the sequence value to start after; 0 means "from the beginning"
   since_cursor: z.number().int().nonnegative(),
   // timeout in seconds; optional, default 30, clamped to [1, 30]
@@ -70,6 +77,8 @@ const waitForMessagesSchema = z.object({
 
 const getHistorySchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
   // before_cursor: if absent or null, returns the most-recent batch
   before_cursor: z.number().int().nonnegative().optional().nullable(),
   // limit: default 100, max 500; values above 500 silently clamp to 100 per README
@@ -121,10 +130,10 @@ export function registerFeedTools(server: McpServer): void {
       input: z.infer<typeof postMessageSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id, content, type, attachments } = input;
+      const { session_id, team_id, content, type, attachments } = input;
 
-      // Auth: X-Team-ID must map to an active membership.
-      const participant = await requireMembership(extra, session_id);
+      // Auth: team_id (args-first, header fallback) must map to an active membership.
+      const participant = await requireMembership(extra, session_id, team_id);
       const teamId = participant.teamId;
 
       // Reject any type other than "chat" — no system-message spoofing.
@@ -208,10 +217,10 @@ export function registerFeedTools(server: McpServer): void {
       input: z.infer<typeof waitForMessagesSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id, since_cursor } = input;
+      const { session_id, team_id, since_cursor } = input;
 
-      // Auth: X-Team-ID must map to an active membership.
-      const participant = await requireMembership(extra, session_id);
+      // Auth: team_id (args-first, header fallback) must map to an active membership.
+      const participant = await requireMembership(extra, session_id, team_id);
       const teamId = participant.teamId;
 
       // Clamp timeout to [1, 30] seconds.
@@ -222,10 +231,23 @@ export function registerFeedTools(server: McpServer): void {
       // status derivation (active / idle / disconnected in the roster).
       await touchParticipantHeartbeat(session_id, teamId);
 
+      // Fix C: reactivate caller if they were swept; best-effort.
+      try {
+        await reactivateIfStaleDropped(
+          session_id,
+          teamId,
+          participant.teamName,
+          participant.status,
+        );
+      } catch (err) {
+        console.error("[wait_for_messages] reactivate error (ignored):", err);
+      }
+
       // Lazy sweep: flip stale-active participants before returning messages.
+      // Fix B: exclude the caller from the sweep — they just heartbeated.
       // Best-effort — a sweep failure must not block the long-poll.
       try {
-        await sweepStaleParticipants(session_id);
+        await sweepStaleParticipants(session_id, teamId);
       } catch (err) {
         console.error("[wait_for_messages] sweep error (ignored):", err);
       }
@@ -316,19 +338,32 @@ export function registerFeedTools(server: McpServer): void {
       input: z.infer<typeof getHistorySchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id } = input;
+      const { session_id, team_id } = input;
 
-      // Auth: X-Team-ID must map to an active membership.
-      const participant = await requireMembership(extra, session_id);
+      // Auth: team_id (args-first, header fallback) must map to an active membership.
+      const participant = await requireMembership(extra, session_id, team_id);
       const teamId = participant.teamId;
 
       // Touch heartbeat — any read counts as activity.
       await touchParticipantHeartbeat(session_id, teamId);
 
+      // Fix C: reactivate caller if they were swept; best-effort.
+      try {
+        await reactivateIfStaleDropped(
+          session_id,
+          teamId,
+          participant.teamName,
+          participant.status,
+        );
+      } catch (err) {
+        console.error("[get_history] reactivate error (ignored):", err);
+      }
+
       // Lazy sweep: flip stale-active participants before returning history.
+      // Fix B: exclude the caller from the sweep — they just heartbeated.
       // Best-effort — a sweep failure must not block the read.
       try {
-        await sweepStaleParticipants(session_id);
+        await sweepStaleParticipants(session_id, teamId);
       } catch (err) {
         console.error("[get_history] sweep error (ignored):", err);
       }

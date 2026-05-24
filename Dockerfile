@@ -48,7 +48,7 @@ ENV MCP_SESSION_TOKEN_SECRET=""
 # Docker bridge-network traffic is not silently dropped.
 ENV HOSTNAME=0.0.0.0
 # Default port — overridable at runtime via the PORT env var.
-ENV PORT=3000
+ENV PORT=7423
 
 # Run as the built-in non-root `node` user (uid 1000) that ships with
 # the node:alpine images — no custom user creation needed.
@@ -64,9 +64,9 @@ COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 # Uncomment the line below if public/ is added in a future phase:
 # COPY --from=builder --chown=node:node /app/public ./public
 
-EXPOSE 3000
+EXPOSE 7423
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 3000) + '/', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 7423) + '/', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 CMD ["node", "server.js"]

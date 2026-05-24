@@ -81,10 +81,14 @@ function replaceOrAppendConclusion(doc: string, summary: string): string {
 
 const readSessionDocSchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
 });
 
 const updateSessionDocSchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
   content: z.string().min(1),
   expected_version: z.number().int().min(0),
   /** Optional doc title. Omit to leave unchanged; null to clear; string (≤255 chars) to set. */
@@ -93,6 +97,8 @@ const updateSessionDocSchema = z.object({
 
 const appendToSessionDocSchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
   text: z.string().min(1),
   /** Optional doc title. Omit to leave unchanged; null to clear; string (≤255 chars) to set. */
   title: z.string().max(255).nullable().optional(),
@@ -101,6 +107,8 @@ const appendToSessionDocSchema = z.object({
 // Base shape for SDK registration (no .refine — refine returns ZodEffects, which has no .shape)
 const updateSessionMetadataBase = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
   title: z.string().max(200).optional(),
   description: z.string().optional(),
   reason: z.string().min(1),
@@ -116,11 +124,15 @@ type UpdateSessionMetadataInput = z.infer<typeof updateSessionMetadataBase>;
 
 const concludeSessionSchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
   summary_section: z.string().min(1),
 });
 
 const downloadSessionDocSchema = z.object({
   session_id: z.string().uuid(),
+  // Optional v0.12 auth path — supersedes X-Team-ID header when present.
+  team_id: z.string().uuid().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -154,9 +166,9 @@ export function registerDocTools(server: McpServer): void {
       input: z.infer<typeof readSessionDocSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id } = input;
+      const { session_id, team_id } = input;
 
-      const participant = await requireMembership(extra, session_id);
+      const participant = await requireMembership(extra, session_id, team_id);
       await touchParticipantHeartbeat(session_id, participant.teamId);
 
       const { content, version, title } = await readSessionDoc(session_id);
@@ -185,9 +197,9 @@ export function registerDocTools(server: McpServer): void {
       input: z.infer<typeof updateSessionDocSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id, content, expected_version, title } = input;
+      const { session_id, team_id, content, expected_version, title } = input;
 
-      const participant = await requireMembership(extra, session_id);
+      const participant = await requireMembership(extra, session_id, team_id);
       await touchParticipantHeartbeat(session_id, participant.teamId);
 
       const session = await getSessionById(session_id);
@@ -239,9 +251,9 @@ export function registerDocTools(server: McpServer): void {
       input: z.infer<typeof appendToSessionDocSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id, text, title } = input;
+      const { session_id, team_id, text, title } = input;
 
-      const participant = await requireMembership(extra, session_id);
+      const participant = await requireMembership(extra, session_id, team_id);
       await touchParticipantHeartbeat(session_id, participant.teamId);
 
       const session = await getSessionById(session_id);
@@ -293,7 +305,7 @@ export function registerDocTools(server: McpServer): void {
       input: UpdateSessionMetadataInput,
       extra: HandlerExtra,
     ) => {
-      const { session_id, title, description, reason } = input;
+      const { session_id, team_id, title, description, reason } = input;
 
       // Enforce the at-least-one-of title/description refinement
       const parsed = updateSessionMetadataSchema.safeParse(input);
@@ -304,7 +316,7 @@ export function registerDocTools(server: McpServer): void {
         );
       }
 
-      const participant = await requireMembership(extra, session_id);
+      const participant = await requireMembership(extra, session_id, team_id);
       await touchParticipantHeartbeat(session_id, participant.teamId);
 
       const session = await getSessionById(session_id);
@@ -395,9 +407,9 @@ export function registerDocTools(server: McpServer): void {
       input: z.infer<typeof concludeSessionSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id, summary_section } = input;
+      const { session_id, team_id, summary_section } = input;
 
-      const participant = await requireMembership(extra, session_id);
+      const participant = await requireMembership(extra, session_id, team_id);
       await touchParticipantHeartbeat(session_id, participant.teamId);
 
       // Read the current doc; readSessionDoc throws not_found if session missing
@@ -476,9 +488,9 @@ export function registerDocTools(server: McpServer): void {
       input: z.infer<typeof downloadSessionDocSchema>,
       extra: HandlerExtra,
     ) => {
-      const { session_id } = input;
+      const { session_id, team_id } = input;
 
-      const participant = await requireMembership(extra, session_id);
+      const participant = await requireMembership(extra, session_id, team_id);
       await touchParticipantHeartbeat(session_id, participant.teamId);
 
       const session = await getSessionById(session_id);

@@ -5,7 +5,10 @@ import NextLink from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { getTeamId, setTeamId } from '@/lib/client/team-id';
 import { useJoinSession, useMessageStream, useSession, useLeaveSession, useConcludeSession, useUpdateSessionMetadata, useReopenSession, getPasscode, getLastUsername } from '@/lib/client/hooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { SupportTicketPicker } from '@/components/session/support-ticket-picker';
 import { MCPClientError } from '@/lib/client/mcp-client';
+import { showErrorToast } from '@/lib/client/error-toast';
 import { TitleBar } from '@/components/session/title-bar';
 import { RosterPanel } from '@/components/session/roster-panel';
 import { FeedPanel } from '@/components/session/feed-panel';
@@ -23,7 +26,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Download, Link, LogOut, Share2 } from 'lucide-react';
+import { ArrowLeft, Download, Link, LogOut, Share2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { DotFieldBackground } from '@/components/ui/dot-field-background';
@@ -79,7 +82,11 @@ function JoinGate({
         onNotFound();
         return;
       }
-      // All other errors are surfaced inline via joinSession.isError below.
+      // All other errors are surfaced as a persistent toast.
+      showErrorToast(
+        err instanceof Error ? err.message : 'Failed to join session.',
+        { title: 'Failed to join session' },
+      );
       return;
     }
     localStorage.setItem(storageKey, teamName);
@@ -121,13 +128,6 @@ function JoinGate({
                 required
               />
             </div>
-            {joinSession.isError && (
-              <p className="text-sm text-destructive">
-                {joinSession.error instanceof Error
-                  ? joinSession.error.message
-                  : 'Failed to join session.'}
-              </p>
-            )}
             <div className="flex items-center justify-between gap-2">
               <NextLink href="/">
                 <Button variant="default" size="sm" type="button">
@@ -186,6 +186,7 @@ function SessionUI({ sessionId, onNotFound }: { sessionId: string; onNotFound: (
   // isCreator: SSR-safe — read localStorage after mount and store in state.
   const [isCreator, setIsCreator] = useState(false);
 
+  const queryClient = useQueryClient();
   const leaveSession = useLeaveSession();
   const concludeSession = useConcludeSession();
   const reopenSession = useReopenSession();
@@ -234,6 +235,19 @@ function SessionUI({ sessionId, onNotFound }: { sessionId: string; onNotFound: (
     }
   }, [sessionQuery.isError, sessionQuery.error, onNotFound]);
 
+  // Invalidate support-session queries when relevant system events arrive.
+  const lastMsg = stream.messages.at(-1);
+  useEffect(() => {
+    if (!lastMsg || lastMsg.type !== 'system') return;
+    const ev = (lastMsg.content as { event?: string } | null)?.event;
+    if (ev === 'support_tickets_updated') {
+      void queryClient.invalidateQueries({ queryKey: ['support_tickets', sessionId] });
+    } else if (ev === 'support_ticket_selected') {
+      void queryClient.invalidateQueries({ queryKey: ['support_selected_ticket', sessionId] });
+    }
+    // support_issue_appended: no UI state to invalidate beyond what feed-panel.tsx renders
+  }, [lastMsg?.id, sessionId, queryClient]);
+
   // Derive session_closed from both the stream and a local override (for
   // when the user themselves concludes the session via the TitleBar dialog).
   const sessionClosed = stream.sessionClosed;
@@ -247,15 +261,22 @@ function SessionUI({ sessionId, onNotFound }: { sessionId: string; onNotFound: (
 
   async function handleEditSubmit() {
     if (!editReason.trim()) return;
-    await updateMetadata.mutateAsync({
-      session_id: sessionId,
-      title: editTitle,
-      description: editDescription,
-      reason: editReason,
-    });
-    setTitle(editTitle);
-    setDescription(editDescription);
-    setEditOpen(false);
+    try {
+      await updateMetadata.mutateAsync({
+        session_id: sessionId,
+        title: editTitle,
+        description: editDescription,
+        reason: editReason,
+      });
+      setTitle(editTitle);
+      setDescription(editDescription);
+      setEditOpen(false);
+    } catch (err) {
+      showErrorToast(
+        err instanceof Error ? err.message : 'Failed to update metadata.',
+        { title: 'Failed to update session metadata' },
+      );
+    }
   }
 
   async function handleShare() {
@@ -274,9 +295,9 @@ passcode: ${passcode}
 session_url: ${shareUrl}
 mcp_endpoint: ${mcpUrl}
 
-This guide assumes you are an agent running in Claude Code (HTTP-MCP transport with static headers). To join you will register with the server, save your team_id into .mcp.json, and ask the user to restart so your MCP transport carries the auth header. Approximate time: 2 minutes.
+This guide assumes you are an agent running in Claude Code (HTTP-MCP transport). To join you will register with the server via curl and then use the merkle MCP tools, passing your team_id as an argument on every call. Approximate time: 30 seconds.
 
-Step 1 -- Pick a team_name and register via curl (do not use an MCP tool -- your transport isn't authed yet). Run exactly:
+Step 1 -- Pick a team_name and register via curl. Run exactly:
 
 curl -X POST ${mcpUrl} \\
   -H "Content-Type: application/json" \\
@@ -285,21 +306,7 @@ curl -X POST ${mcpUrl} \\
 
 The response contains your team_id. Save it.
 
-Step 2 -- Add or merge this entry into .mcp.json in the user's working directory (merge with any existing mcpServers entries -- do not overwrite other servers):
-
-{
-  "mcpServers": {
-    "merkle": {
-      "type": "http",
-      "url": "${mcpUrl}",
-      "headers": { "X-Team-ID": "PASTE_TEAM_ID_HERE" }
-    }
-  }
-}
-
-Step 3 -- Ask the user to restart Claude Code so the X-Team-ID header takes effect.
-
-Step 4 -- After restart, the merkle__ tools become available with auth. Call merkle__wait_for_messages({ session_id: "${sessionId}", since_cursor: 0 }) to enter the session. Call merkle__get_app_info() for a full tool reference.`;
+Step 2 -- Call merkle__wait_for_messages({ session_id: "${sessionId}", team_id: "YOUR_TEAM_ID", since_cursor: 0 }) to enter the session. From now on, include team_id in the arguments of every merkle__ tool call. Call merkle__get_app_info({ team_id: "YOUR_TEAM_ID" }) for a full tool reference.`;
       await navigator.clipboard.writeText(payload);
       toast.success('Invitation copied', {
         description: 'Agent invitation copied to clipboard',
@@ -370,27 +377,48 @@ To execute:
 
   async function handleLeave() {
     if (!myTeamId) return;
-    await leaveSession.mutateAsync({ session_id: sessionId, team_id: myTeamId });
-    router.push('/');
+    try {
+      await leaveSession.mutateAsync({ session_id: sessionId, team_id: myTeamId });
+      router.push('/');
+    } catch (err) {
+      showErrorToast(
+        err instanceof Error ? err.message : 'Failed to leave session.',
+        { title: 'Failed to leave session' },
+      );
+    }
   }
 
   async function handleConcludeSubmit() {
     if (!summary.trim()) return;
-    await concludeSession.mutateAsync({
-      session_id: sessionId,
-      summary_section: summary,
-    });
-    setConcludeOpen(false);
+    try {
+      await concludeSession.mutateAsync({
+        session_id: sessionId,
+        summary_section: summary,
+      });
+      setConcludeOpen(false);
+    } catch (err) {
+      showErrorToast(
+        err instanceof Error ? err.message : 'Failed to close session.',
+        { title: 'Failed to close session' },
+      );
+    }
   }
 
   async function handleReopenSubmit() {
     if (!reopenReason.trim()) return;
-    await reopenSession.mutateAsync({
-      session_id: sessionId,
-      reason: reopenReason,
-    });
-    setReopenReason('');
-    setReopenOpen(false);
+    try {
+      await reopenSession.mutateAsync({
+        session_id: sessionId,
+        reason: reopenReason,
+      });
+      setReopenReason('');
+      setReopenOpen(false);
+    } catch (err) {
+      showErrorToast(
+        err instanceof Error ? err.message : 'Failed to open session.',
+        { title: 'Failed to open session' },
+      );
+    }
   }
 
   return (
@@ -409,13 +437,6 @@ To execute:
               <LogOut className="h-4 w-4 mr-1.5 -scale-x-100" />
               {leaveSession.isPending ? 'Leaving…' : 'Leave'}
             </Button>
-            {leaveSession.isError && (
-              <span className="text-xs text-destructive">
-                {leaveSession.error instanceof Error
-                  ? leaveSession.error.message
-                  : 'Failed to leave.'}
-              </span>
-            )}
             <Button
               variant="outline"
               size="sm"
@@ -480,10 +501,10 @@ To execute:
               variant="outline"
               size="sm"
               onClick={() => void handleShare()}
-              aria-label="Share session link"
+              aria-label="Add agent to session"
             >
-              <Share2 className="h-4 w-4 mr-1.5" />
-              Share Session
+              <UserPlus className="h-4 w-4 mr-1.5" />
+              Add Agent
             </Button>
             <Button
               variant="outline"
@@ -496,6 +517,13 @@ To execute:
             <ThemeToggle />
           </div>
         </div>
+
+        {/* Support-session ticket picker — shown only for support sessions */}
+        {sessionQuery.data?.is_support_session && (
+          <div className="shrink-0 border-b border-border px-3 py-2">
+            <SupportTicketPicker sessionId={sessionId} />
+          </div>
+        )}
 
         {/* Title bar */}
         <TitleBar
@@ -583,13 +611,6 @@ To execute:
               {updateMetadata.isPending ? 'Saving…' : 'Save changes'}
             </Button>
           </DialogFooter>
-          {updateMetadata.isError && (
-            <p className="text-xs text-destructive mt-2">
-              {updateMetadata.error instanceof Error
-                ? updateMetadata.error.message
-                : 'Failed to update metadata.'}
-            </p>
-          )}
         </DialogContent>
       </Dialog>
 
@@ -629,13 +650,6 @@ To execute:
               {reopenSession.isPending ? 'Opening…' : 'Open session'}
             </Button>
           </DialogFooter>
-          {reopenSession.isError && (
-            <p className="text-xs text-destructive mt-2">
-              {reopenSession.error instanceof Error
-                ? reopenSession.error.message
-                : 'Failed to open session.'}
-            </p>
-          )}
         </DialogContent>
       </Dialog>
 
@@ -677,13 +691,6 @@ To execute:
               {concludeSession.isPending ? 'Closing…' : 'Close session'}
             </Button>
           </DialogFooter>
-          {concludeSession.isError && (
-            <p className="text-xs text-destructive mt-2">
-              {concludeSession.error instanceof Error
-                ? concludeSession.error.message
-                : 'Failed to close session.'}
-            </p>
-          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -18,6 +18,7 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/comp
 import { VisuallyHidden } from 'radix-ui';
 import { HelpCircle, Copy, Check, CornerUpLeft, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { showErrorToast } from '@/lib/client/error-toast';
 import type { Attachment } from '@/db/schema';
 
 interface FeedPanelProps {
@@ -62,7 +63,7 @@ function SystemMessage({ content }: { content: unknown }) {
         ? `${by} started the session`
         : `${by} reopened the session: ${String(c.reason ?? '')}`;
     return (
-      <div className="mx-2 my-1 px-3 py-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-700 dark:text-emerald-300 select-none cursor-default">
+      <div className="mx-2 my-1 flex items-center leading-none p-2.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-700 dark:text-emerald-300 select-none cursor-default">
         {label}
       </div>
     );
@@ -72,7 +73,7 @@ function SystemMessage({ content }: { content: unknown }) {
     const by = String(c.by ?? 'A team');
     const summary = c.summary ? String(c.summary) : null;
     return (
-      <div className="mx-2 my-1 px-3 py-1.5 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-700 dark:text-red-300 select-none cursor-default">
+      <div className="mx-2 my-1 flex flex-col justify-center leading-none p-2.5 rounded bg-red-500/10 border border-red-500/20 text-xs text-red-700 dark:text-red-300 select-none cursor-default">
         <div>{by} concluded the session</div>
         {summary && (
           <div className="mt-0.5 text-red-600/80 dark:text-red-400/80 whitespace-pre-wrap">{summary}</div>
@@ -92,6 +93,9 @@ function SystemMessage({ content }: { content: unknown }) {
     case 'team_dropped':
       text = `${String(c.team ?? 'A team')} disconnected (no heartbeat)`;
       break;
+    case 'team_rejoined':
+      text = `${String(c.team ?? 'A team')} reconnected`;
+      break;
     case 'session_metadata_updated': {
       const by = String(c.by ?? 'A team');
       const reason = c.reason ? ` — "${String(c.reason)}"` : '';
@@ -104,12 +108,25 @@ function SystemMessage({ content }: { content: unknown }) {
     case 'doc_appended':
       text = `${String(c.by ?? 'A team')} appended to the document`;
       break;
+    case 'support_tickets_updated':
+      text = `${String(c.by_team_name ?? 'An agent')} refreshed the vault — ${String(c.count ?? 0)} ticket${c.count === 1 ? '' : 's'} available.`;
+      break;
+    case 'support_ticket_selected':
+      if (c.ticket_key === null || c.ticket_key === undefined) {
+        text = `${String(c.changed_by_team_name ?? 'A team')} cleared the selected ticket.`;
+      } else {
+        text = `${String(c.changed_by_team_name ?? 'A team')} selected ${String(c.ticket_key)}.`;
+      }
+      break;
+    case 'support_issue_appended':
+      text = `${String(c.by_team_name ?? 'An agent')} logged an issue on ${String(c.ticket_key ?? 'unknown')}.`;
+      break;
     default:
       text = event ? `${event}` : JSON.stringify(content);
   }
 
   return (
-    <em className="block text-xs text-muted-foreground py-1 px-2 select-none cursor-default">{text}</em>
+    <em className="text-xs text-muted-foreground flex items-center leading-none p-2.5 select-none cursor-default">{text}</em>
   );
 }
 
@@ -291,14 +308,21 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
     setDraft('');
     setPendingAttachments([]);
     setReplyingTo(null);
-    await postMessage.mutateAsync({
-      session_id: sessionId,
-      content: { text },
-      type: 'chat',
-      attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
-    }).finally(() => {
+    try {
+      await postMessage.mutateAsync({
+        session_id: sessionId,
+        content: { text },
+        type: 'chat',
+        attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
+      });
+    } catch (err) {
+      showErrorToast(
+        err instanceof Error ? err.message : 'Failed to send message.',
+        { title: 'Failed to send message' },
+      );
+    } finally {
       textareaRef.current?.focus();
-    });
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -451,13 +475,6 @@ export function FeedPanel({ sessionId, sessionClosed }: FeedPanelProps) {
             className="resize-none w-full text-sm pr-7"
           />
         </div>
-        {postMessage.isError && (
-          <p className="text-xs text-destructive">
-            {postMessage.error instanceof Error
-              ? postMessage.error.message
-              : 'Failed to send message.'}
-          </p>
-        )}
         {/* Hidden submit — keyboard (Enter) is the primary trigger; hasContent kept for gating */}
         <span className="sr-only" aria-hidden={!hasContent} />
       </div>

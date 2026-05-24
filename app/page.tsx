@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react';
 import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
 import { useCreateSession, useJoinSession, useListSessions, getPasscode, getLastUsername } from '@/lib/client/hooks';
+import { showErrorToast } from '@/lib/client/error-toast';
 import type { SessionSummary } from '@/lib/client/hooks';
+import { Switch } from '@/components/ui/switch';
 import { getTeamId } from '@/lib/client/team-id';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -39,6 +41,7 @@ import { X, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { DotFieldBackground } from '@/components/ui/dot-field-background';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { VERSION } from '@/lib/version';
 
 // ---------------------------------------------------------------------------
 // Create session form
@@ -51,6 +54,7 @@ function CreateSessionForm() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [teamName, setTeamName] = useState('');
+  const [isSupportSession, setIsSupportSession] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Prefill username from last-used global value (SSR-safe: read only after mount).
@@ -68,10 +72,15 @@ function CreateSessionForm() {
         title,
         description,
         creator_team_name: teamName,
+        is_support_session: isSupportSession,
       });
       router.push(`/sessions/${result.session_id}`);
-    } catch {
+    } catch (err) {
       setSubmitting(false);
+      showErrorToast(
+        err instanceof Error ? err.message : 'Failed to create session.',
+        { title: 'Failed to Create Session' },
+      );
     }
   }
 
@@ -109,6 +118,17 @@ function CreateSessionForm() {
             />
           </div>
 
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="create-support-session" className="cursor-pointer">
+              Support Session
+            </Label>
+            <Switch
+              id="create-support-session"
+              checked={isSupportSession}
+              onCheckedChange={(checked) => setIsSupportSession(checked === true)}
+            />
+          </div>
+
           <div className="space-y-1">
             <Label htmlFor="create-team">Username</Label>
             <Input
@@ -119,14 +139,6 @@ function CreateSessionForm() {
               required
             />
           </div>
-
-          {createSession.isError && (
-            <p className="text-sm text-destructive">
-              {createSession.error instanceof Error
-                ? createSession.error.message
-                : 'Failed to create session.'}
-            </p>
-          )}
 
           <Button
             type="submit"
@@ -171,12 +183,19 @@ function JoinSessionForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!sessionId.trim() || !teamName.trim() || !passcode.trim()) return;
-    await joinSession.mutateAsync({
-      session_id: sessionId,
-      team_name: teamName,
-      passcode,
-    });
-    router.push(`/sessions/${sessionId}`);
+    try {
+      await joinSession.mutateAsync({
+        session_id: sessionId,
+        team_name: teamName,
+        passcode,
+      });
+      router.push(`/sessions/${sessionId}`);
+    } catch (err) {
+      showErrorToast(
+        err instanceof Error ? err.message : 'Failed to join session.',
+        { title: 'Failed to join session' },
+      );
+    }
   }
 
   return (
@@ -221,14 +240,6 @@ function JoinSessionForm() {
               required
             />
           </div>
-
-          {joinSession.isError && (
-            <p className="text-sm text-destructive">
-              {joinSession.error instanceof Error
-                ? joinSession.error.message
-                : 'Failed to join session.'}
-            </p>
-          )}
 
           <Button
             type="submit"
@@ -495,7 +506,10 @@ export default function HomePage() {
       <div className="w-full max-w-4xl px-6 py-6">
         {/* Hero */}
         <div className="mb-6 text-center">
-          <h1 className="text-6xl font-bold tracking-tight">Project Merkle</h1>
+          <h1 className="text-6xl font-bold tracking-tight">
+            Project Merkle
+            <span className="ml-3 text-lg font-mono tabular-nums font-normal align-baseline text-foreground/55">{VERSION}</span>
+          </h1>
           <p className="mt-3 text-lg text-muted-foreground">
             Multi-agent session coordination — create sessions, divide tasks, and
             collaborate across teams via MCP.

@@ -11,10 +11,10 @@ services:
       DATABASE_URL: postgresql://merkle:merkle_dev@postgres:5432/merkle
       NEXT_PUBLIC_MCP_URL: ${NEXT_PUBLIC_MCP_URL:-}
       MCP_SESSION_TOKEN_SECRET: ${MCP_SESSION_TOKEN_SECRET:-}
-      PORT: ${PORT:-3000}
+      PORT: ${PORT:-7423}
       HOSTNAME: 0.0.0.0
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "${PORT:-7423}:${PORT:-7423}"
     restart: unless-stopped
     # Watchtower (running separately on the host) will poll DockerHub for this image
     # and auto-restart the container when a new :main tag is pushed.
