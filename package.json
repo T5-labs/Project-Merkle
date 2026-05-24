@@ -1,6 +1,6 @@
 {
   "name": "project-merkle",
-  "version": "0.17.1",
+  "version": "0.17.2",
   "private": true,
   "scripts": {
     "dev": "WATCHPACK_POLLING=true CHOKIDAR_USEPOLLING=true TURBOPACK_POLLING=true next dev -p 7423",

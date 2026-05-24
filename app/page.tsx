@@ -470,20 +470,32 @@ function FooterButtons() {
 
 function ThemedDotField() {
   const { resolvedTheme } = useTheme();
+  // SSR-safe initial state: use a neutral mid-gray that reads on both themes
+  // until the effect resolves the actual theme.
   const [colors, setColors] = useState<{ from: string; to: string }>({
-    from: 'hsla(0 0% 98% / 0.25)',
-    to: 'hsla(0 0% 98% / 0.18)',
+    from: 'rgba(100, 116, 139, 0.30)',
+    to: 'rgba(100, 116, 139, 0.22)',
   });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const fgHsl = getComputedStyle(document.documentElement)
-      .getPropertyValue('--foreground')
-      .trim();
-    if (fgHsl) {
+    const isDark = resolvedTheme === 'dark';
+    if (isDark) {
+      // Dark mode: foreground-based dots at low opacity — readable against off-black bg.
+      const fgHsl = getComputedStyle(document.documentElement)
+        .getPropertyValue('--foreground')
+        .trim();
+      setColors(
+        fgHsl
+          ? { from: `hsla(${fgHsl} / 0.30)`, to: `hsla(${fgHsl} / 0.22)` }
+          : { from: 'rgba(248, 250, 252, 0.30)', to: 'rgba(248, 250, 252, 0.22)' },
+      );
+    } else {
+      // Light mode: use a darker, warmer slate at higher opacity so dots are
+      // clearly visible against the warm off-white (#F7F6F3) background.
       setColors({
-        from: `hsla(${fgHsl} / 0.25)`,
-        to: `hsla(${fgHsl} / 0.18)`,
+        from: 'rgba(71, 85, 105, 0.50)',
+        to: 'rgba(100, 116, 139, 0.40)',
       });
     }
   }, [resolvedTheme]);
