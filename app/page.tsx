@@ -9,6 +9,7 @@ import type { SessionSummary } from '@/lib/client/hooks';
 import { Switch } from '@/components/ui/switch';
 import { getTeamId } from '@/lib/client/team-id';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import {
   Card,
   CardContent,
@@ -37,6 +38,7 @@ function GithubIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+import Link from 'next/link';
 import { X, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { DotFieldBackground } from '@/components/ui/dot-field-background';
@@ -284,12 +286,14 @@ function SessionRow({ session }: { session: SessionSummary }) {
     router.push(`/sessions/${session.session_id}`);
   }
 
+  const statusVariant = session.status === 'active' ? 'active' : session.status === 'closed' ? 'closed' : 'outline';
+
   return (
-    <div className="w-full rounded-xl border bg-card text-card-foreground shadow-sm p-4 flex items-center justify-between gap-4">
-      <div className="flex-1 min-w-0">
+    <div className="w-full rounded-xl border bg-card text-card-foreground flex items-stretch justify-between overflow-hidden">
+      <div className="flex-1 min-w-0 self-center p-4">
         <div className="flex items-center gap-2 mb-1">
           <span className="font-semibold truncate">{session.title}</span>
-          <Badge variant="outline" className="shrink-0 text-xs capitalize">
+          <Badge variant={statusVariant} className="shrink-0 text-xs capitalize">
             {session.status}
           </Badge>
         </div>
@@ -302,30 +306,41 @@ function SessionRow({ session }: { session: SessionSummary }) {
           {session.participant_count} participant{session.participant_count !== 1 ? 's' : ''} · created {relativeTime(session.created_at)}
         </p>
       </div>
-      <Button
-        size="sm"
-        variant="outline"
-        className="shrink-0"
-        onClick={navigate}
-      >
-        {label} <ArrowRight className="h-4 w-4 ml-1.5" />
-      </Button>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              className="shrink-0 !h-auto self-stretch w-8 p-0 rounded-none border-l"
+              onClick={navigate}
+              aria-label={`${label} session`}
+            >
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="left">Join</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     </div>
   );
 }
 
 function SessionsList() {
-  const [activeTab, setActiveTab] = useState<'active' | 'closed'>('active');
+  const [activeTab, setActiveTab] = useState<'all' | 'active' | 'closed'>('all');
   const [query, setQuery] = useState('');
 
+  const { data: allSessions, isLoading: allLoading } = useListSessions({ status: 'all' });
   const { data: activeSessions, isLoading: activeLoading } = useListSessions({ status: 'active' });
   const { data: closedSessions, isLoading: closedLoading } = useListSessions({ status: 'closed' });
 
+  const allCount = allSessions?.length ?? 0;
   const activeCount = activeSessions?.length ?? 0;
   const closedCount = closedSessions?.length ?? 0;
 
-  const currentSessions = activeTab === 'active' ? activeSessions : closedSessions;
-  const isLoading = activeTab === 'active' ? activeLoading : closedLoading;
+  const currentSessions =
+    activeTab === 'all' ? allSessions : activeTab === 'active' ? activeSessions : closedSessions;
+  const isLoading =
+    activeTab === 'all' ? allLoading : activeTab === 'active' ? activeLoading : closedLoading;
 
   const filtered = currentSessions
     ? currentSessions.filter((s) => {
@@ -358,6 +373,13 @@ function SessionsList() {
         </p>
       );
     }
+    if (activeTab === 'all') {
+      return (
+        <p className="text-sm text-muted-foreground">
+          No sessions yet — create one above to get started.
+        </p>
+      );
+    }
     if (activeTab === 'active') {
       return (
         <p className="text-sm text-muted-foreground">
@@ -374,7 +396,7 @@ function SessionsList() {
     <Tabs
       value={activeTab}
       onValueChange={(v) => {
-        setActiveTab(v as 'active' | 'closed');
+        setActiveTab(v as 'all' | 'active' | 'closed');
         setQuery('');
       }}
     >
@@ -382,6 +404,7 @@ function SessionsList() {
         <span className="inline-flex items-center h-7 text-xs font-medium uppercase tracking-wide text-muted-foreground px-3 select-none leading-none flex-1">
           Sessions
         </span>
+        <TabsTrigger value="all" className="h-7 px-3 text-sm flex-1">All ({allCount})</TabsTrigger>
         <TabsTrigger value="active" className="h-7 px-3 text-sm flex-1">Active ({activeCount})</TabsTrigger>
         <TabsTrigger value="closed" className="h-7 px-3 text-sm flex-1">Closed ({closedCount})</TabsTrigger>
       </TabsList>
@@ -404,6 +427,9 @@ function SessionsList() {
           </button>
         )}
       </div>
+      <TabsContent value="all" className="mt-0">
+        {renderList()}
+      </TabsContent>
       <TabsContent value="active" className="mt-0">
         {renderList()}
       </TabsContent>
@@ -468,32 +494,29 @@ function FooterButtons() {
 
 function ThemedDotField() {
   const { resolvedTheme } = useTheme();
-  // SSR-safe initial state: use a neutral mid-gray that reads on both themes
-  // until the effect resolves the actual theme.
+  // SSR-safe initial state: warm stone-gray that reads reasonably on both
+  // themes before hydration resolves the actual theme.
   const [colors, setColors] = useState<{ from: string; to: string }>({
-    from: 'rgba(100, 116, 139, 0.30)',
-    to: 'rgba(100, 116, 139, 0.22)',
+    from: 'rgba(120, 113, 108, 0.38)',
+    to: 'rgba(168, 162, 158, 0.28)',
   });
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const isDark = resolvedTheme === 'dark';
     if (isDark) {
-      // Dark mode: foreground-based dots at low opacity — readable against off-black bg.
-      const fgHsl = getComputedStyle(document.documentElement)
-        .getPropertyValue('--foreground')
-        .trim();
-      setColors(
-        fgHsl
-          ? { from: `hsla(${fgHsl} / 0.30)`, to: `hsla(${fgHsl} / 0.22)` }
-          : { from: 'rgba(248, 250, 252, 0.30)', to: 'rgba(248, 250, 252, 0.22)' },
-      );
-    } else {
-      // Light mode: use a darker, warmer slate at higher opacity so dots are
-      // clearly visible against the warm off-white (#F7F6F3) background.
+      // Dark mode: warm off-white dots at low opacity — visible but not loud
+      // against the off-black (#16161e) background.
       setColors({
-        from: 'rgba(71, 85, 105, 0.50)',
-        to: 'rgba(100, 116, 139, 0.40)',
+        from: 'rgba(220, 218, 214, 0.22)',
+        to: 'rgba(200, 198, 196, 0.15)',
+      });
+    } else {
+      // Light mode: warm stone/taupe grays that harmonize with the warm
+      // off-white (#F7F6F3 ≈ hsl(60 9% 97%)) background — not cool slate.
+      setColors({
+        from: 'rgba(120, 113, 108, 0.45)',
+        to: 'rgba(168, 162, 158, 0.35)',
       });
     }
   }, [resolvedTheme]);
@@ -518,7 +541,10 @@ export default function HomePage() {
         <div className="mb-6 text-center">
           <h1 className="text-6xl font-bold tracking-tight">
             Project Merkle
-            <span className="ml-3 text-lg font-mono tabular-nums font-normal align-baseline text-foreground/55">{VERSION}</span>
+            <Link
+              href="/versions"
+              className="ml-3 text-lg font-mono tabular-nums font-normal align-baseline text-foreground/55 hover:text-foreground/80 hover:underline underline-offset-2 transition-colors"
+            >{VERSION}</Link>
           </h1>
           <p className="mt-3 text-lg text-muted-foreground">
             Multi-agent session coordination — create sessions, divide tasks, and
