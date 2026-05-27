@@ -5,6 +5,7 @@ import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
 import { useCreateSession, useJoinSession, useListSessions, getPasscode, getLastUsername } from '@/lib/client/hooks';
 import { showErrorToast } from '@/lib/client/error-toast';
+import { copyToClipboard } from '@/lib/client/clipboard';
 import type { SessionSummary } from '@/lib/client/hooks';
 import { Switch } from '@/components/ui/switch';
 import { getTeamId } from '@/lib/client/team-id';
@@ -453,12 +454,12 @@ function FooterButtons() {
   }, []);
 
   async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(mcpUrl);
+    const ok = await copyToClipboard(mcpUrl);
+    if (ok) {
       toast.success('Copied to clipboard', { description: mcpUrl });
-    } catch {
+    } else {
       toast.error("Couldn't copy", {
-        description: 'Browser blocked clipboard access',
+        description: 'Copy failed — please copy the URL manually: ' + mcpUrl,
       });
     }
   }

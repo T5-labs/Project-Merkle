@@ -11,6 +11,7 @@ import {
   type ParticipantRow,
 } from '@/lib/client/hooks';
 import { getTeamId } from '@/lib/client/team-id';
+import { copyToClipboard } from '@/lib/client/clipboard';
 import { markdownComponents } from '@/lib/markdown-components';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -165,13 +166,15 @@ function MessageItem({
   }
 
   async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(text);
+    const ok = await copyToClipboard(text);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
       toast.success('Message copied', { description: 'Pasted to your clipboard' });
-    } catch {
-      toast.error("Couldn't copy message");
+    } else {
+      toast.error("Couldn't copy message", {
+        description: 'Copy failed — please select and copy the text manually.',
+      });
     }
   }
 

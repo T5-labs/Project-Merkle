@@ -3,21 +3,22 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Copy, Check, AlertCircle } from 'lucide-react';
+import { copyToClipboard } from '@/lib/client/clipboard';
 
 /** Scrollable code block with a hover-reveal Copy/Check button, rendered inside the toast description. */
 function ErrorCodeBlock({ message, fullText }: { message: string; fullText: string }) {
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
-    try {
-      void navigator.clipboard.writeText(fullText).then(() => {
+    void copyToClipboard(fullText).then((ok) => {
+      if (ok) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
         toast.success('Error copied', { duration: 2000 });
-      });
-    } catch {
-      // navigator.clipboard may be unavailable in non-secure contexts — fail silently
-    }
+      }
+      // If copy fails (e.g. plain HTTP context), fail silently — the error text
+      // is already visible in the scrollable code block so the user can select it.
+    });
   }
 
   return (

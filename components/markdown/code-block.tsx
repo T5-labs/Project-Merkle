@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyToClipboard } from '@/lib/client/clipboard';
 
 interface CodeBlockProps extends React.HTMLAttributes<HTMLPreElement> {
   children?: React.ReactNode;
@@ -14,13 +15,15 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
 
   async function handleCopy() {
     const text = preRef.current?.innerText ?? '';
-    try {
-      await navigator.clipboard.writeText(text);
+    const ok = await copyToClipboard(text);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
       toast.success('Code copied', { description: 'Pasted to your clipboard' });
-    } catch {
-      toast.error("Couldn't copy code");
+    } else {
+      toast.error("Couldn't copy code", {
+        description: 'Copy failed — please select and copy the text manually.',
+      });
     }
   }
 

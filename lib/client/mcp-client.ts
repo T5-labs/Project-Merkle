@@ -19,6 +19,31 @@
  */
 
 // ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates a UUID v4 string compatible with both secure contexts (HTTPS) and
+ * insecure contexts (plain HTTP). `crypto.randomUUID()` is only available in
+ * secure contexts (HTTPS / localhost), so we fall back to `crypto.getRandomValues()`
+ * — which works everywhere — when `randomUUID` is unavailable.
+ */
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback: build a UUID v4 from random bytes via getRandomValues().
+  // Template: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+  // - 'x' positions: any random hex nibble (0–f)
+  // - 'y' positions: must be 8, 9, a, or b  →  (r & 0x3) | 0x8
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = crypto.getRandomValues(new Uint8Array(1))[0] & 0x0f;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -92,7 +117,7 @@ export async function mcpCall<TResult>(
 
   const body = JSON.stringify({
     jsonrpc: "2.0",
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     method: "tools/call",
     params: {
       name: toolName,

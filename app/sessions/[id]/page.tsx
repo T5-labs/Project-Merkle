@@ -9,6 +9,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { SupportTicketPicker } from '@/components/session/support-ticket-picker';
 import { MCPClientError } from '@/lib/client/mcp-client';
 import { showErrorToast } from '@/lib/client/error-toast';
+import { copyToClipboard } from '@/lib/client/clipboard';
 import { TitleBar } from '@/components/session/title-bar';
 import { RosterPanel } from '@/components/session/roster-panel';
 import { FeedPanel } from '@/components/session/feed-panel';
@@ -307,13 +308,19 @@ curl -X POST ${mcpUrl} \\
 The response contains your team_id. Save it.
 
 Step 2 -- Call merkle__wait_for_messages({ session_id: "${sessionId}", team_id: "YOUR_TEAM_ID", since_cursor: 0 }) to enter the session. From now on, include team_id in the arguments of every merkle__ tool call. Call merkle__get_app_info({ team_id: "YOUR_TEAM_ID" }) for a full tool reference.`;
-      await navigator.clipboard.writeText(payload);
-      toast.success('Invitation copied', {
-        description: 'Agent invitation copied to clipboard',
-      });
+      const ok = await copyToClipboard(payload);
+      if (ok) {
+        toast.success('Invitation copied', {
+          description: 'Agent invitation copied to clipboard',
+        });
+      } else {
+        toast.error("Couldn't copy", {
+          description: 'Copy failed — please copy the invitation text manually.',
+        });
+      }
     } catch {
       toast.error("Couldn't copy", {
-        description: 'Browser blocked clipboard access',
+        description: 'An unexpected error occurred while preparing the invitation.',
       });
     }
   }
@@ -328,11 +335,17 @@ Step 2 -- Call merkle__wait_for_messages({ session_id: "${sessionId}", team_id: 
         return;
       }
       const url = `${window.location.origin}/sessions/${sessionId}?passcode=${encodeURIComponent(passcode)}`;
-      await navigator.clipboard.writeText(url);
-      toast.success('URL copied', { description: 'Pasted to your clipboard' });
+      const ok = await copyToClipboard(url);
+      if (ok) {
+        toast.success('URL copied', { description: 'Pasted to your clipboard' });
+      } else {
+        toast.error("Couldn't copy", {
+          description: 'Copy failed — please copy the URL manually: ' + url,
+        });
+      }
     } catch {
       toast.error("Couldn't copy", {
-        description: 'Browser blocked clipboard access',
+        description: 'An unexpected error occurred.',
       });
     }
   }
@@ -364,13 +377,19 @@ To execute:
 3. Write the content to <vault>/<subfolder>/<suggested_filename>. Use the suggested filename or let the user override. Create the subfolder if it does not exist.
 
 4. Confirm with the user once the file is written. Print the absolute path. Optionally surface the title and participant list as a one-line summary.`;
-      await navigator.clipboard.writeText(payload);
-      toast.success('Download prompt copied', {
-        description: 'Paste into Claude Code to save this session to Obsidian',
-      });
+      const ok = await copyToClipboard(payload);
+      if (ok) {
+        toast.success('Download prompt copied', {
+          description: 'Paste into Claude Code to save this session to Obsidian',
+        });
+      } else {
+        toast.error("Couldn't copy", {
+          description: 'Copy failed — please copy the prompt text manually.',
+        });
+      }
     } catch {
       toast.error("Couldn't copy", {
-        description: 'Browser blocked clipboard access',
+        description: 'An unexpected error occurred while preparing the download prompt.',
       });
     }
   }
