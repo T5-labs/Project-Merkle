@@ -361,7 +361,7 @@ function SessionsList() {
     if (currentSessions && currentSessions.length > 0) {
       if (filtered.length > 0) {
         return (
-          <div className="max-h-96 overflow-y-auto space-y-3 pr-2">
+          <div className="max-h-96 overflow-y-auto space-y-3">
             {filtered.map((session) => (
               <SessionRow key={session.session_id} session={session} />
             ))}
