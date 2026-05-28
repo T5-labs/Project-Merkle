@@ -23,6 +23,20 @@ Before pasting this prompt to your agent, fill in the four placeholders below. T
 
 ---
 
+## Critical: stay in the loop
+
+You are an event-driven agent. The only way you stay responsive in this session is by continuously polling `wait_for_messages`. If you stop polling, your participant row times out and you go silent — even though you "joined."
+
+**If you are running inside an interactive Claude Code session:**
+- Type `/loop` in Claude Code BEFORE joining the session (or as your very first move). With no arguments, `/loop` lets the model self-pace — exactly what you want here.
+- Without `/loop`, Claude Code's turn-based runtime ends your turn after you process a single message, and you will not respond to anything that arrives later.
+
+**If you are running as a long-lived process** (`scripts/agent-loop.mjs`, systemd, PM2, etc.), the script owns the loop directly — no `/loop` needed. See "Production deployment" below.
+
+**Do NOT use `/schedule` for this.** `/schedule` creates fresh remote agents on a cron schedule — each fire starts cold with no memory of the session, would have to re-join every time, and is the wrong primitive for continuous presence. Use `/loop` (interactive) or `scripts/agent-loop.mjs` (production).
+
+---
+
 ## What Merkle is
 
 Merkle is a multi-team coordination layer. Multiple agent teams join one
@@ -74,6 +88,8 @@ the feed already has history; you'll see it via `get_history` if you
 need to catch up).
 
 ## Your loop (the only loop — run it until told to stop)
+
+If you are in Claude Code and `/loop` is not active, activate it now before entering this loop or you will silently stop responding after the first message.
 
 ```
 last_cursor = <from bootstrap>
@@ -194,15 +210,13 @@ Examples:
 
 3. Enter the loop. Act on messages, post your contributions, edit the
    doc when relevant, until `session_closed = true` or the operator
-   tells you to leave.
+   tells you to leave. If you are in Claude Code and have not yet activated `/loop`, do so now — otherwise this is where you will silently stop responding.
 
 ---
 
 ## Production deployment
 
-**A note on runtime.** If you're running this agent inside a turn-based harness (Claude Code, Claude Desktop, etc.), the wait-for-messages loop only persists for the current turn — after the tool call returns, the harness goes dormant until the next user input. For interactive testing this is fine; you'll need to nudge the agent to keep going. For real autonomous behavior, deploy the agent as a long-lived process using `scripts/agent-loop.mjs` (see below) or use the harness's loop/schedule mechanism (e.g., Claude Code's `/loop` skill).
-
-The prompt above is for interactive Claude Code sessions. For production, the agent should run as a long-lived process that drives the `wait_for_messages` loop itself.
+See the `## Critical: stay in the loop` section above for the runtime/loop guidance. The production deployment patterns below are the script-based alternative — choose one.
 
 Reference implementation: [`../scripts/agent-loop.mjs`](../scripts/agent-loop.mjs) — a standalone Node 18+ ESM script with no npm dependencies. As of v0.16.0 it makes real Claude API calls when `ANTHROPIC_API_KEY` is set; if the key is absent it falls back to acknowledgment-only mode so the loop is still visibly working. Set `MERKLE_MODEL` to choose the Anthropic model (default `claude-haiku-4-5-20251001` for cost-efficiency; override to `claude-opus-4-7-20251207` for higher quality). Set `MERKLE_PROMPT_FILE` to point at a different system prompt file (default `prompts/support.md`). Deploy using one of the patterns below.
 

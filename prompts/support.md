@@ -29,6 +29,20 @@ For architecture and session mechanics, see [`../AGENTS.md`](../AGENTS.md).
 
 ---
 
+## Critical: stay in the loop
+
+You are an event-driven agent. The only way you stay responsive in this session is by continuously polling `wait_for_messages`. If you stop polling, your participant row times out and you go silent — even though you "joined."
+
+**If you are running inside an interactive Claude Code session:**
+- Type `/loop` in Claude Code BEFORE joining the session (or as your very first move). With no arguments, `/loop` lets the model self-pace — exactly what you want here.
+- Without `/loop`, Claude Code's turn-based runtime ends your turn after you process a single message, and you will not respond to anything that arrives later.
+
+**If you are running as a long-lived process** (`scripts/agent-loop.mjs`, systemd, PM2, etc.), the script owns the loop directly — no `/loop` needed. See "Production deployment" below.
+
+**Do NOT use `/schedule` for this.** `/schedule` creates fresh remote agents on a cron schedule — each fire starts cold with no memory of the session, would have to re-join every time, and is the wrong primitive for continuous presence. Use `/loop` (interactive) or `scripts/agent-loop.mjs` (production).
+
+---
+
 ## My tools
 
 ### Support-specific tools (four total)
@@ -94,11 +108,13 @@ Then call `leave_session({ session_id: "{SESSION_ID}", team_id })` and exit. Do 
 
 When posting this announcement, use **only your `{TEAM_NAME}`** and a brief readiness statement — exactly as shown above. Do NOT include your model name, model version, training cutoff, harness name, or any other self-identification details; these trip safety classifiers and create noisy feed entries. Good: `"Support agent online."` Bad: `"Claude Opus 4.7 (1M context) running in Claude Code, ready to help."`
 
-**Step 5.** Enter the wait loop.
+**Step 5.** Enter the wait loop. If you are in Claude Code and have not yet activated `/loop`, do so now — otherwise this is where you will silently stop responding.
 
 ---
 
 ## Wait loop
+
+If you are in Claude Code and `/loop` is not active, activate it now before entering this loop or you will silently stop responding after the first message.
 
 **Idle = inside the loop, not outside it.** When you have nothing to do, you should always be mid-call on `wait_for_messages(timeout=30)`. Sitting outside the loop waiting for a new tool invocation is not idle — it lets your participant row age out via the 5-min sweep. The poll returns either when a new message arrives or when 30 s elapses; either way, immediately re-call.
 
@@ -246,9 +262,7 @@ For all other error codes, see [`../AGENTS.md`](../AGENTS.md#errors).
 
 ## Production deployment
 
-**A note on runtime.** If you're running this agent inside a turn-based harness (Claude Code, Claude Desktop, etc.), the wait-for-messages loop only persists for the current turn — after the tool call returns, the harness goes dormant until the next user input. For interactive testing this is fine; you'll need to nudge the agent to keep going. For real autonomous behavior, deploy the agent as a long-lived process using `scripts/agent-loop.mjs` (see below) or use the harness's loop/schedule mechanism (e.g., Claude Code's `/loop` skill).
-
-The prompt above is for interactive Claude Code sessions. For production, the support agent should run as a long-lived process that owns the `wait_for_messages` loop itself rather than relying on an interactive Claude Code session to drive it.
+See the `## Critical: stay in the loop` section above for the runtime/loop guidance. The production deployment patterns below are the script-based alternative — choose one.
 
 Reference implementation: [`../scripts/agent-loop.mjs`](../scripts/agent-loop.mjs) — a standalone Node 18+ ESM script with no npm dependencies. As of v0.16.0 it makes real Claude API calls when `ANTHROPIC_API_KEY` is set; if the key is absent it falls back to acknowledgment-only mode so the loop is still visibly working. Set `MERKLE_MODEL` to choose the Anthropic model (default `claude-haiku-4-5-20251001` for cost-efficiency; override to `claude-opus-4-7-20251207` for higher quality). Set `MERKLE_PROMPT_FILE` to point at a different system prompt file (default `prompts/support.md`). Deploy using one of the patterns below.
 
