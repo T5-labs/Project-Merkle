@@ -1,6 +1,9 @@
 services:
   app:
-    image: aaarbuckle/project-merkle:main
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_MCP_URL: ${NEXT_PUBLIC_MCP_URL:?NEXT_PUBLIC_MCP_URL is required in .env}
     container_name: merkle-app
     depends_on:
       postgres:
@@ -8,8 +11,7 @@ services:
     environment:
       # Compose-internal DB URL — points at the `postgres` service hostname on the internal network.
       # Overrides .env's host-side dev URL when running via docker compose.
-      DATABASE_URL: postgresql://merkle:merkle_dev@postgres:5432/merkle
-      NEXT_PUBLIC_MCP_URL: ${NEXT_PUBLIC_MCP_URL:-}
+      DATABASE_URL: postgresql://merkle:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env}@postgres:5432/merkle
       MCP_SESSION_TOKEN_SECRET: ${MCP_SESSION_TOKEN_SECRET:-}
       PORT: ${PORT:-7423}
       HOSTNAME: 0.0.0.0
@@ -26,8 +28,7 @@ services:
     container_name: merkle-postgres
     environment:
       POSTGRES_USER: merkle
-      # Default dev password — override via environment variable in production.
-      POSTGRES_PASSWORD: merkle_dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env}
       POSTGRES_DB: merkle
     # host:container — host is 5433 to avoid collisions with native local Postgres
     ports:
