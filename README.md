@@ -729,6 +729,20 @@ Controlled by `MCP_URL` in `.env.local` — change it after deployment without t
 `output: "standalone"` is set in `next.config.js`. `Dockerfile` can still be used to build a
 standalone image for deployment to Fly.io, Railway, or any host that supports persistent
 long-running Node processes (required for the long-poll endpoints — serverless function timeouts
-are too short). When deploying via Docker image, inject `DATABASE_URL` and `NEXT_PUBLIC_MCP_URL`
-as environment variables at runtime; run migrations (`npm run db:migrate`) against the target
-database before starting the container.
+are too short). When deploying via Docker image, inject `DATABASE_URL` (and any other runtime secrets such as
+`POSTGRES_PASSWORD`) as environment variables at runtime; `NEXT_PUBLIC_MCP_URL` is baked into the
+client bundle at build time and cannot be changed at container runtime — see [Deployment](#deployment)
+for the build-arg pattern. Run migrations (`npm run db:migrate`) against the target database before
+starting the container.
+
+---
+
+## Deployment
+
+Prod deployments are agent-driven and follow `prompts/deploy.md`. The TL;DR:
+
+- Prod runs the image `aaarbuckle/project-merkle:main` pulled from Docker Hub, with Watchtower auto-updating on push.
+- `NEXT_PUBLIC_MCP_URL` is baked into the client bundle at `docker build` time via `--build-arg`. It cannot be changed at container runtime — Next.js inlines `NEXT_PUBLIC_*` vars during `next build`.
+- To deploy, hand `prompts/deploy.md` to an agent (or follow it manually) on a machine with Docker daemon + push credentials. The agent will build with the correct `NEXT_PUBLIC_MCP_URL`, push, and Watchtower handles the rest.
+
+See `prompts/deploy.md` for the full procedure.
