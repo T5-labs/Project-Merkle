@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1778514210788,
+      "tag": "0000_gray_corsair",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778540845309,
+      "tag": "0001_nervous_kronos",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779395546407,
+      "tag": "0002_support_sessions",
+      "breakpoints": true
+    }
+  ]
+}

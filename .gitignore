@@ -27,8 +27,12 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Drizzle generated migrations (generated output; regenerate with npm run db:generate)
-/drizzle/
+# Drizzle migrations — the committed .sql migrations and meta/ journal MUST be
+# version-controlled so they reach CI and ship inside the Docker image.
+# (Previously the whole /drizzle/ tree was ignored, which kept the migration
+# files out of the CI checkout and broke the runner COPY of /app/drizzle.)
+# Ignore only the regenerable local build cache, not the tracked migrations.
+/drizzle/.cache/
 
 # OS
 .DS_Store
