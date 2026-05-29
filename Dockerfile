@@ -48,6 +48,10 @@ ENV DATABASE_URL=""
 ENV NEXT_PUBLIC_MCP_URL=""
 ENV MCP_SESSION_TOKEN_SECRET=""
 
+# Auto-apply pending Drizzle migrations on boot (instrumentation.ts).
+# Overridable: set RUN_DB_MIGRATIONS=false to disable migrating on start.
+ENV RUN_DB_MIGRATIONS=true
+
 # Bind the standalone server to all interfaces inside the container so
 # Docker bridge-network traffic is not silently dropped.
 ENV HOSTNAME=0.0.0.0
@@ -64,6 +68,12 @@ USER node
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 
+# Drizzle migration files (.sql + meta/) are NOT part of the standalone
+# bundle. The boot-time migrator (instrumentation.ts) reads them from
+# `drizzle` relative to the WORKDIR (process.cwd()), so copy them next to
+# server.js at the app root.
+COPY --from=builder --chown=node:node /app/drizzle ./drizzle
+
 # public/ does not currently exist in this project.
 # Uncomment the line below if public/ is added in a future phase:
 # COPY --from=builder --chown=node:node /app/public ./public
@@ -71,6 +81,6 @@ COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 EXPOSE 7423
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 7423) + '/', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 7423) + '/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 CMD ["node", "server.js"]

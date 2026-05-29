@@ -669,7 +669,7 @@ The dev server binds to host port 7423 by default (set in `package.json` and via
 cp .env.example .env.local          # adjust DATABASE_URL if needed
 docker compose up -d postgres        # start only the Postgres container
 npm install
-npm run db:migrate                   # applies drizzle/0000_short_purifiers.sql
+npm run db:migrate                   # applies drizzle/ migrations (0000_gray_corsair, 0001_nervous_kronos, 0002_support_sessions)
 npm run dev
 ```
 
@@ -682,7 +682,8 @@ works without any edits.
 
 ### Mode B — Production build on host, Postgres in Docker
 
-The app no longer runs in Docker. Only Postgres runs in a container. For a production-style
+In this host-dev mode the app runs natively (not in Docker); Docker is used only for Postgres.
+(Production *does* run the app in Docker — see Deployment.) For a production-style
 build on the host:
 
 ```bash
@@ -720,7 +721,7 @@ Point agents at `./AGENTS.md` for the full tool reference and call patterns. The
 http://localhost:7423/api/mcp
 ```
 
-Controlled by `MCP_URL` in `.env.local` — change it after deployment without touching code or redeploying agents.
+Controlled by `NEXT_PUBLIC_MCP_URL` — for Docker deploys it is baked into the client bundle at build time (`--build-arg`); for host dev it comes from `.env.local`.
 
 ---
 
@@ -729,11 +730,13 @@ Controlled by `MCP_URL` in `.env.local` — change it after deployment without t
 `output: "standalone"` is set in `next.config.js`. `Dockerfile` can still be used to build a
 standalone image for deployment to Fly.io, Railway, or any host that supports persistent
 long-running Node processes (required for the long-poll endpoints — serverless function timeouts
-are too short). When deploying via Docker image, inject `DATABASE_URL` (and any other runtime secrets such as
-`POSTGRES_PASSWORD`) as environment variables at runtime; `NEXT_PUBLIC_MCP_URL` is baked into the
-client bundle at build time and cannot be changed at container runtime — see [Deployment](#deployment)
-for the build-arg pattern. Run migrations (`npm run db:migrate`) against the target database before
-starting the container.
+are too short). When deploying via Docker image, inject the runtime secrets (`POSTGRES_PASSWORD`,
+`MCP_SESSION_TOKEN_SECRET`, `DATABASE_URL`) as environment variables at runtime; `NEXT_PUBLIC_MCP_URL`
+is baked into the client bundle at build time and cannot be changed at container runtime — see
+[Deployment](#deployment) for the build-arg pattern. **Migrations run automatically on container
+boot** via `instrumentation.ts` (gated by `RUN_DB_MIGRATIONS=true`, which is set in the image), so no
+manual migration step is needed for Docker deploys — `npm run db:migrate` is for host/non-Docker dev
+only and is not present in the runner image.
 
 ---
 
@@ -741,8 +744,8 @@ starting the container.
 
 Prod deployments are agent-driven and follow `prompts/deploy.md`. The TL;DR:
 
-- Prod runs the image `aaarbuckle/project-merkle:main` pulled from Docker Hub, with Watchtower auto-updating on push.
-- `NEXT_PUBLIC_MCP_URL` is baked into the client bundle at `docker build` time via `--build-arg`. It cannot be changed at container runtime — Next.js inlines `NEXT_PUBLIC_*` vars during `next build`.
-- To deploy, hand `prompts/deploy.md` to an agent (or follow it manually) on a machine with Docker daemon + push credentials. The agent will build with the correct `NEXT_PUBLIC_MCP_URL`, push, and Watchtower handles the rest.
+- **Primary path:** build the image locally on the prod host with the correct `--build-arg NEXT_PUBLIC_MCP_URL=...`, then `docker compose up -d`. No Docker Hub, no Watchtower. The container migrates the DB on boot; confirm with `/api/health` and `[migrate] up to date` in the app logs.
+- **Optional path (Docker Hub + Watchtower):** push the image and let Watchtower roll the prod container. ⚠️ Org CI (`.github/workflows/build-publish.yml` → `T5-labs/.github`) rebuilds and pushes an ARM64-only, empty-`NEXT_PUBLIC_MCP_URL` image to `:main`/`:<sha>` on any `main` push whose message contains `publish`, which can clobber your good image on an amd64 host. Mitigation: push to a CI-untouched tag (e.g. `:prod`) and point compose/Watchtower at it — or just use the primary local-build path.
+- **Knobs:** `NEXT_PUBLIC_MCP_URL` (build-arg, inlined into the client bundle at `next build`); `RUN_DB_MIGRATIONS` (env, triggers boot-time migration, `true` in the image); `DATABASE_URL` / `POSTGRES_PASSWORD` / `MCP_SESSION_TOKEN_SECRET` (runtime env secrets); `/api/health` (200 ok / 503 DB degraded).
 
 See `prompts/deploy.md` for the full procedure.
