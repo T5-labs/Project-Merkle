@@ -721,23 +721,25 @@ Point agents at `./AGENTS.md` for the full tool reference and call patterns. The
 http://localhost:7423/api/mcp
 ```
 
-Controlled by `NEXT_PUBLIC_MCP_URL` — for Docker deploys it is baked into the client bundle at build time (`--build-arg`); for host dev it comes from `.env.local`.
+Controlled by `NEXT_PUBLIC_MCP_URL` — for Docker deploys it is baked into the client bundle at build time (CI reads it from the repo Variable `vars.NEXT_PUBLIC_MCP_URL` and passes it as `--build-arg`); for host dev it comes from `.env.local`.
 
 ---
 
 ### Production deployment
 
-`output: "standalone"` is set in `next.config.js`. `Dockerfile` can still be used to build a
-standalone image for deployment to Fly.io, Railway, or any host that supports persistent
-long-running Node processes (required for the long-poll endpoints — serverless function timeouts
-are too short). When deploying via Docker image, inject the runtime secrets (`POSTGRES_PASSWORD`,
-`DATABASE_URL`) as environment variables at runtime (`MCP_SESSION_TOKEN_SECRET` is optional — an
-unused placeholder for future connection-level auth); `NEXT_PUBLIC_MCP_URL`
-is baked into the client bundle at build time and cannot be changed at container runtime — see
-[Deployment](#deployment) for the build-arg pattern. **Migrations run automatically on container
-boot** via `instrumentation.ts` (gated by `RUN_DB_MIGRATIONS=true`, which is set in the image), so no
-manual migration step is needed for Docker deploys — `npm run db:migrate` is for host/non-Docker dev
-only and is not present in the runner image.
+`output: "standalone"` is set in `next.config.js`. **Docker Hub is the source of truth:** CI builds the
+amd64 image and pushes `aaarbuckle/project-merkle:main`, the prod box runs that Hub image via `docker
+compose up -d`, and Watchtower auto-updates it (see [Deployment](#deployment)). A long-running Node
+process is required for the long-poll endpoints — serverless function timeouts are too short, so the
+host must support persistent processes. When running via Docker image, inject the runtime secrets
+(`POSTGRES_PASSWORD`, `DATABASE_URL`) as environment variables at runtime (`MCP_SESSION_TOKEN_SECRET`
+is optional — an unused placeholder for future connection-level auth); `NEXT_PUBLIC_MCP_URL` is baked
+into the client bundle at build time (from the CI repo Variable `vars.NEXT_PUBLIC_MCP_URL`) and cannot
+be changed at container runtime. **Migrations run automatically on container boot** via
+`instrumentation.ts` (gated by `RUN_DB_MIGRATIONS=true`, which is set in the image) — this applies
+whether the image was pulled from Hub or built locally — so no manual migration step is needed for
+Docker deploys; `npm run db:migrate` is for host/non-Docker dev only and is not present in the runner
+image.
 
 ---
 
@@ -745,8 +747,8 @@ only and is not present in the runner image.
 
 Prod deployments are agent-driven and follow `prompts/deploy.md`. The TL;DR:
 
-- **Primary path:** build the image locally on the prod host with the correct `--build-arg NEXT_PUBLIC_MCP_URL=...`, then `docker compose up -d`. No Docker Hub, no Watchtower. The container migrates the DB on boot; confirm with `/api/health` and `[migrate] up to date` in the app logs.
-- **Optional path (Docker Hub + Watchtower):** push the image and let Watchtower roll the prod container. ⚠️ Org CI (`.github/workflows/build-publish.yml` → `T5-labs/.github`) rebuilds and pushes an ARM64-only, empty-`NEXT_PUBLIC_MCP_URL` image to `:main`/`:<sha>` on any `main` push whose message contains `publish`, which can clobber your good image on an amd64 host. Mitigation: push to a CI-untouched tag (e.g. `:prod`) and point compose/Watchtower at it — or just use the primary local-build path.
-- **Knobs:** `NEXT_PUBLIC_MCP_URL` (build-arg, inlined into the client bundle at `next build`); `RUN_DB_MIGRATIONS` (env, triggers boot-time migration, `true` in the image); `DATABASE_URL` / `POSTGRES_PASSWORD` (runtime env secrets); `MCP_SESSION_TOKEN_SECRET` (optional, unused future-use placeholder); `/api/health` (200 ok / 503 DB degraded).
+- **Primary path (Docker Hub + Watchtower):** make a commit whose message is exactly `publish` and push to `main` → CI (`.github/workflows/build-publish.yml`) builds the amd64 image and pushes `aaarbuckle/project-merkle:main` (+ `:<sha>`) to Docker Hub. On the box, `docker compose up -d` PULLS `:main` (no local build), and Watchtower auto-updates the app container within ~5 min of each new `:main` push. The container migrates the DB on boot; confirm with `/api/health` and `[migrate] up to date` in the app logs. Requires the repo Variable `NEXT_PUBLIC_MCP_URL` + `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secrets set once; the image is amd64-only, so the box must be amd64. ⚠️ Don't deploy from Hub until the new CI has pushed a good amd64 image (variable + secrets set + a `publish` commit) — before that first release, Hub `:main` is the stale broken image.
+- **Fallback path (local build, dev/offline/air-gapped only):** build the image on the host with `--build-arg NEXT_PUBLIC_MCP_URL=...`, then `docker compose up -d`. Use only when you can't reach Hub; the container still migrates on boot. Not the recommended path.
+- **Knobs:** `NEXT_PUBLIC_MCP_URL` (inlined into the client bundle at `next build`; CI repo Variable `vars.NEXT_PUBLIC_MCP_URL` for the Hub path, `--build-arg` for the fallback); `RUN_DB_MIGRATIONS` (env, triggers boot-time migration, `true` in the image); `DATABASE_URL` / `POSTGRES_PASSWORD` (runtime env secrets); `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` (CI push secrets, token needs write scope); `MCP_SESSION_TOKEN_SECRET` (optional, unused future-use placeholder); `/api/health` (200 ok / 503 DB degraded).
 
 See `prompts/deploy.md` for the full procedure.

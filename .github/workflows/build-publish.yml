@@ -1,25 +1,73 @@
-# Calls the reusable build/push workflow from T5-labs/.github.
+# Build & Push to Docker Hub — self-contained CI publish workflow.
 #
-# Build gate: the reusable workflow only launches a Docker build when the head
-# commit message is exactly "publish" or is a merge-commit message that contains
-# "publish". Without passing caller_commit_message below the gate always evaluates
-# false and nothing ever builds — so that arg is required.
+# On `publish` commits to main (or manual dispatch) this BUILDS the
+# linux/amd64 image (matching the prod server's arch; native on the
+# runner, no QEMU) and PUSHES it to Docker Hub tagged both `:main` and
+# `:<sha>` — the same image the deploy consumes.
 #
-# Resulting image tags (set by the reusable workflow):
-#   aaarbuckle/project-merkle:main
-#   aaarbuckle/project-merkle:<sha>
-# Both tags are polled by Watchtower on the deploy server for automatic redeployment.
+# NEXT_PUBLIC_MCP_URL is sourced from the repo-level Actions Variable
+# (not hardcoded) so it is configurable without editing this file.
+#
+# Requires repo secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (the
+# token must have WRITE/push scope) and the Actions Variable
+# NEXT_PUBLIC_MCP_URL.
 
-name: Build & Push to DockerHub
+name: Build & Push to Docker Hub
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-publish-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-push:
-    uses: T5-labs/.github/.github/workflows/dockerhub-build-push.yml@main
-    with:
-      caller_commit_message: ${{ github.event.head_commit.message }}
-      caller_event_name: ${{ github.event_name }}
-    secrets: inherit
+  build-publish:
+    runs-on: ubuntu-latest
+    # Team's "publish" commit-message convention: only commits whose
+    # message is exactly `publish` push (beta/WIP commits don't), while
+    # manual dispatch always runs. This is the team's convention, NOT a
+    # safety gate — delete this `if:` to publish on every push to main.
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'publish'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          # amd64 only — matches the prod server's arch, native on the
+          # runner (no QEMU emulation).
+          platforms: linux/amd64
+          push: true
+          # Single-arch plain manifest (no OCI index) — friendliest for
+          # Watchtower/older hosts.
+          provenance: false
+          # NEXT_PUBLIC_MCP_URL is baked into the client bundle at BUILD
+          # time. It is sourced from the repo-level Actions Variable
+          # NEXT_PUBLIC_MCP_URL (Settings → Secrets and variables →
+          # Actions → Variables) so it is configurable without editing
+          # this file. If that variable is unset, the client bundle ships
+          # an empty URL and the browser app breaks — so the variable
+          # MUST be set.
+          build-args: |
+            NEXT_PUBLIC_MCP_URL=${{ vars.NEXT_PUBLIC_MCP_URL }}
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/project-merkle:main
+            ${{ secrets.DOCKERHUB_USERNAME }}/project-merkle:${{ github.sha }}
+          # GitHub Actions layer cache to keep builds fast.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

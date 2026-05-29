@@ -20,6 +20,21 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: merkle-watchtower
+    environment:
+      # Only watch containers carrying the watchtower.enable label (the app has it; postgres does not).
+      WATCHTOWER_LABEL_ENABLE: "true"
+      # Remove old images after a successful update.
+      WATCHTOWER_CLEANUP: "true"
+      # Poll DockerHub every 300s (5 min) — tunable.
+      WATCHTOWER_POLL_INTERVAL: "300"
+    volumes:
+      # Docker socket — Watchtower needs read-write access to recreate the labeled container on update.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     container_name: merkle-postgres
