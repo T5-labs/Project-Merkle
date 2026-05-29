@@ -18,7 +18,7 @@ Confirm these are true on the machine where you will run the build:
 
 - Docker daemon is running (`docker info` succeeds).
 - The Project-Merkle repo is cloned and you are on the commit you want to deploy (verify with `git log --oneline -5`).
-- The host `.env` file contains `POSTGRES_PASSWORD` (and optionally `MCP_SESSION_TOKEN_SECRET`). The compose file's `:?` fail-fast guards refuse to start without the required secrets.
+- The host `.env` file contains `POSTGRES_PASSWORD`. The compose file's `:?` fail-fast guard refuses to start without it. `MCP_SESSION_TOKEN_SECRET` is optional (compose `:-` default, never blocks startup) — it is an unused placeholder for future connection-level auth, so setting it today changes nothing.
 
 Secondary path only:
 
@@ -30,9 +30,12 @@ Secondary path only:
 
 This is the path that worked. Run it on the prod host itself.
 
+`NEXT_PUBLIC_MCP_URL` is per-deployment — set it to the public MCP endpoint of the host you are building for (it is baked into the client bundle at build time). Keep the `:7423/api/mcp` shape; only the host and scheme are host-specific.
+
 ```bash
 git pull && git log --oneline -5
-docker build --build-arg NEXT_PUBLIC_MCP_URL=http://10.2.5.120:7423/api/mcp -t aaarbuckle/project-merkle:main .
+# set NEXT_PUBLIC_MCP_URL to this host's public MCP endpoint, e.g. https://your-host:7423/api/mcp
+docker build --build-arg NEXT_PUBLIC_MCP_URL="$NEXT_PUBLIC_MCP_URL" -t aaarbuckle/project-merkle:main .
 docker compose up -d
 docker compose logs app | grep '\[migrate\]'        # expect: [migrate] up to date
 docker exec merkle-postgres psql -U merkle -d merkle -c '\dt'
@@ -95,7 +98,7 @@ The output should show a fresh digest. Confirm the `created` timestamp matches t
 
 ## After deploy
 
-The host's `.env` file must contain `POSTGRES_PASSWORD` and `MCP_SESSION_TOKEN_SECRET` — the compose file's `:?` fail-fast guards will refuse to start without them. Confirm the user has those set before the first deploy.
+The host's `.env` file must contain `POSTGRES_PASSWORD` — the compose file's `:?` fail-fast guard will refuse to start without it. Confirm the user has it set before the first deploy. `MCP_SESSION_TOKEN_SECRET` is optional (compose `:-` default, never blocks startup) and is currently an unused placeholder for future connection-level auth.
 
 Universal post-deploy check (both models): confirm `[migrate] up to date` in `docker compose logs app` and that `curl -fsS http://localhost:7423/api/health` returns `200 {"status":"ok",...}` (a `503` means the DB is degraded).
 

@@ -116,7 +116,7 @@ When posting this announcement, use **only your `{TEAM_NAME}`** and a brief read
 
 If you are in Claude Code and `/loop` is not active, activate it now before entering this loop or you will silently stop responding after the first message.
 
-**Idle = inside the loop, not outside it.** When you have nothing to do, you should always be mid-call on `wait_for_messages(timeout=30)`. Sitting outside the loop waiting for a new tool invocation is not idle — it lets your participant row age out via the 5-min sweep. The poll returns either when a new message arrives or when 30 s elapses; either way, immediately re-call.
+**Idle = inside the loop, not outside it.** When you have nothing to do, you should always be mid-call on `wait_for_messages(timeout=30)`. Sitting outside the loop waiting for a new tool invocation is not idle — it lets your participant row age out via the 15-min sweep. The poll returns either when a new message arrives or when 30 s elapses; either way, immediately re-call.
 
 ```
 last_cursor        = <cursor from join_session>

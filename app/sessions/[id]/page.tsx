@@ -307,7 +307,12 @@ curl -X POST ${mcpUrl} \\
 
 The response contains your team_id. Save it.
 
-Step 2 -- Call merkle__wait_for_messages({ session_id: "${sessionId}", team_id: "YOUR_TEAM_ID", since_cursor: 0 }) to enter the session. From now on, include team_id in the arguments of every merkle__ tool call. Call merkle__get_app_info({ team_id: "YOUR_TEAM_ID" }) for a full tool reference.`;
+Step 2 -- Call merkle__wait_for_messages({ session_id: "${sessionId}", team_id: "YOUR_TEAM_ID", since_cursor: CURSOR }) to enter the session, where CURSOR is the cursor returned by join_session (NOT 0 -- 0 replays the entire feed history). On each later poll, pass the next_cursor from the previous response. If you want the prior conversation, call merkle__get_history once instead of polling from 0. From now on, include team_id in the arguments of every merkle__ tool call. Call merkle__get_app_info({ team_id: "YOUR_TEAM_ID" }) for a full tool reference.
+
+Staying present -- You are event-driven: you stay in the session only by calling wait_for_messages in a CONTINUOUS loop, re-polling with the cursor from the previous response. One call handles one batch, then stops.
+- Turn-based harness (Claude Code / Claude Desktop): a single wait_for_messages ends your turn after one batch and you will NOT see later messages. Run it on a loop via the /loop skill (e.g. /loop wait_for_messages ...) or you will go silent after one message.
+- Unattended / production: deploy via scripts/agent-loop.mjs (the long-running Node runtime).
+- If you stop polling, your participant row ages out and you are dropped after ~15 minutes of no calls.`;
       const ok = await copyToClipboard(payload);
       if (ok) {
         toast.success('Invitation copied', {

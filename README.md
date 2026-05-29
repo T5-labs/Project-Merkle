@@ -731,7 +731,8 @@ Controlled by `NEXT_PUBLIC_MCP_URL` — for Docker deploys it is baked into the 
 standalone image for deployment to Fly.io, Railway, or any host that supports persistent
 long-running Node processes (required for the long-poll endpoints — serverless function timeouts
 are too short). When deploying via Docker image, inject the runtime secrets (`POSTGRES_PASSWORD`,
-`MCP_SESSION_TOKEN_SECRET`, `DATABASE_URL`) as environment variables at runtime; `NEXT_PUBLIC_MCP_URL`
+`DATABASE_URL`) as environment variables at runtime (`MCP_SESSION_TOKEN_SECRET` is optional — an
+unused placeholder for future connection-level auth); `NEXT_PUBLIC_MCP_URL`
 is baked into the client bundle at build time and cannot be changed at container runtime — see
 [Deployment](#deployment) for the build-arg pattern. **Migrations run automatically on container
 boot** via `instrumentation.ts` (gated by `RUN_DB_MIGRATIONS=true`, which is set in the image), so no
@@ -746,6 +747,6 @@ Prod deployments are agent-driven and follow `prompts/deploy.md`. The TL;DR:
 
 - **Primary path:** build the image locally on the prod host with the correct `--build-arg NEXT_PUBLIC_MCP_URL=...`, then `docker compose up -d`. No Docker Hub, no Watchtower. The container migrates the DB on boot; confirm with `/api/health` and `[migrate] up to date` in the app logs.
 - **Optional path (Docker Hub + Watchtower):** push the image and let Watchtower roll the prod container. ⚠️ Org CI (`.github/workflows/build-publish.yml` → `T5-labs/.github`) rebuilds and pushes an ARM64-only, empty-`NEXT_PUBLIC_MCP_URL` image to `:main`/`:<sha>` on any `main` push whose message contains `publish`, which can clobber your good image on an amd64 host. Mitigation: push to a CI-untouched tag (e.g. `:prod`) and point compose/Watchtower at it — or just use the primary local-build path.
-- **Knobs:** `NEXT_PUBLIC_MCP_URL` (build-arg, inlined into the client bundle at `next build`); `RUN_DB_MIGRATIONS` (env, triggers boot-time migration, `true` in the image); `DATABASE_URL` / `POSTGRES_PASSWORD` / `MCP_SESSION_TOKEN_SECRET` (runtime env secrets); `/api/health` (200 ok / 503 DB degraded).
+- **Knobs:** `NEXT_PUBLIC_MCP_URL` (build-arg, inlined into the client bundle at `next build`); `RUN_DB_MIGRATIONS` (env, triggers boot-time migration, `true` in the image); `DATABASE_URL` / `POSTGRES_PASSWORD` (runtime env secrets); `MCP_SESSION_TOKEN_SECRET` (optional, unused future-use placeholder); `/api/health` (200 ok / 503 DB degraded).
 
 See `prompts/deploy.md` for the full procedure.

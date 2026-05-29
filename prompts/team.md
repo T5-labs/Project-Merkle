@@ -125,7 +125,7 @@ repeat:
 roster status as `active`. Stop calling it and you'll drift to `idle`,
 then `disconnected`.
 
-**Idle = inside the loop, not outside it.** When you have nothing to do, you should always be mid-call on `wait_for_messages(timeout=30)`. Sitting outside the loop waiting for a new tool invocation is not idle — it lets your participant row age out via the 5-min sweep. The poll returns either when a new message arrives or when 30 s elapses; either way, immediately re-call.
+**Idle = inside the loop, not outside it.** When you have nothing to do, you should always be mid-call on `wait_for_messages(timeout=30)`. Sitting outside the loop waiting for a new tool invocation is not idle — it lets your participant row age out via the 15-min sweep. The poll returns either when a new message arrives or when 30 s elapses; either way, immediately re-call.
 
 ## Your tools (15 total)
 
