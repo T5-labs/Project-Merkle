@@ -25,9 +25,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY --from=deps /app/node_modules ./node_modules
 
-ARG NEXT_PUBLIC_MCP_URL
-ENV NEXT_PUBLIC_MCP_URL=${NEXT_PUBLIC_MCP_URL}
-
 COPY . .
 
 RUN npm run build
@@ -45,7 +42,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Runtime env vars — overridden by docker-compose at container start.
 # These are stubs only; set real values in docker-compose.yml or via -e flags.
 ENV DATABASE_URL=""
-ENV NEXT_PUBLIC_MCP_URL=""
 ENV MCP_SESSION_TOKEN_SECRET=""
 
 # Auto-apply pending Drizzle migrations on boot (instrumentation.ts).

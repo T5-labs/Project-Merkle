@@ -2,12 +2,12 @@
 
 You are a deployment agent for Project-Merkle. **Docker Hub is the source of truth.** CI builds the amd64 image and pushes it to `aaarbuckle/project-merkle:main`; the prod box runs that Hub image and Watchtower auto-updates it. This is the PRIMARY and recommended path. Local build on the host is a dev/offline fallback only (see below).
 
-Two things you MUST get right in either path:
+Things to keep in mind in either path:
 
-1. **`NEXT_PUBLIC_MCP_URL` is build-time, not runtime.** Next.js inlines every `NEXT_PUBLIC_*` env var into the client JavaScript bundle at `next build` time, NOT at container runtime. For the Hub path it comes from the repo Actions Variable `vars.NEXT_PUBLIC_MCP_URL` (CI passes it as `--build-arg`); for the local-build fallback you pass `--build-arg NEXT_PUBLIC_MCP_URL=...` yourself. If it is unset, the browser bundle ships an empty URL and the app is silently broken in prod. Keep it a configurable variable — never hardcode a host.
+1. **The MCP endpoint needs no configuration.** The browser client derives it from the app's own origin at runtime (`<origin>/api/mcp`), so there is no build-arg, no env var, and no per-host config for the URL — the same image deploys anywhere. Never hardcode a host.
 2. **Migrations run automatically on container boot.** `instrumentation.ts` runs the Drizzle migrations on startup, gated by `RUN_DB_MIGRATIONS=true` (baked into the image). This works identically whether the image was pulled from Hub or built locally. Do NOT run `npm run db:migrate` for a Docker deploy — it is unnecessary, and `drizzle-kit` is not present in the runner image.
 
-> **CRITICAL ORDERING — when is Hub trustworthy?** Watchtower (and `docker compose up -d`) pulls whatever is currently on Hub `:main`. The Hub path is only safe once the NEW CI has pushed a GOOD amd64 image — i.e. the repo Variable `NEXT_PUBLIC_MCP_URL` and the `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secrets are set, and a `publish` commit has landed on `main`. Until that first real release, Hub `:main` is the stale, broken image (wrong arch / empty URL) from the old workflow — do NOT deploy from Hub before then. The first release via the new CI is what makes Hub trustworthy.
+> **CRITICAL ORDERING — when is Hub trustworthy?** Watchtower (and `docker compose up -d`) pulls whatever is currently on Hub `:main`. The Hub path is only safe once the NEW CI has pushed a GOOD amd64 image — i.e. the `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secrets are set and a `publish` commit has landed on `main`. Until that first real release, Hub `:main` is the stale, broken image (wrong arch) from the old workflow — do NOT deploy from Hub before then. The first release via the new CI is what makes Hub trustworthy.
 
 > **Architecture:** the published image is **amd64-only**, so the prod box must be amd64.
 
@@ -17,7 +17,7 @@ Two things you MUST get right in either path:
 
 - Docker daemon is running on the prod box (`docker info` succeeds).
 - The host `.env` file contains `POSTGRES_PASSWORD`. The compose file's `:?` fail-fast guard refuses to start without it. `MCP_SESSION_TOKEN_SECRET` is optional (compose `:-` default, never blocks startup) — it is an unused placeholder for future connection-level auth, so setting it today changes nothing.
-- One-time CI setup (for the Hub path): the repo Actions Variable `NEXT_PUBLIC_MCP_URL` is set, and the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets are set (the token needs write scope).
+- One-time CI setup (for the Hub path): the `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` secrets are set (the token needs write scope).
 
 ---
 
@@ -32,7 +32,7 @@ git commit --allow-empty -m "publish"   # a commit whose message is exactly `pub
 git push origin main
 ```
 
-`.github/workflows/build-publish.yml` runs on `publish` commits to `main` (or manual dispatch), builds `linux/amd64` with `NEXT_PUBLIC_MCP_URL` taken from `vars.NEXT_PUBLIC_MCP_URL`, and pushes `:main` + `:<sha>` using the `DOCKERHUB_*` secrets. If the repo Variable is unset the bundle ships an empty URL, so confirm it once before the first release.
+`.github/workflows/build-publish.yml` runs on `publish` commits to `main` (or manual dispatch), builds `linux/amd64`, and pushes `:main` + `:<sha>` using the `DOCKERHUB_*` secrets. No MCP URL is involved — the client derives it from the app's own origin at runtime, so the build needs no build-arg or variable.
 
 ### Deploy / run on the box
 
@@ -54,12 +54,11 @@ After the initial `up`, **Watchtower auto-updates** the app container within ~5 
 
 Use this ONLY when you can't use Hub (no registry access, air-gapped box, or local iteration). It is not the recommended path — the box will then run a locally-built image instead of the registry image, which is exactly the drift the Hub path avoids.
 
-`NEXT_PUBLIC_MCP_URL` is per-deployment — set it to the public MCP endpoint of the host you are building for (it is baked into the client bundle at build time). Keep the `:7423/api/mcp` shape; only the host and scheme are host-specific.
+The build needs no MCP URL — the client derives the endpoint from the app's own origin at runtime (`<origin>/api/mcp`), so there is no build-arg or per-host config; the same image works on any host.
 
 ```bash
 git pull && git log --oneline -5
-# set NEXT_PUBLIC_MCP_URL to this host's public MCP endpoint, e.g. https://<your-host>:7423/api/mcp
-docker build --build-arg NEXT_PUBLIC_MCP_URL="$NEXT_PUBLIC_MCP_URL" -t aaarbuckle/project-merkle:main .
+docker build -t aaarbuckle/project-merkle:main .
 docker compose up -d
 docker compose logs app | grep '\[migrate\]'        # expect: [migrate] up to date
 curl -fsS http://localhost:7423/api/health          # 200 {"status":"ok",...}; 503 => DB degraded
@@ -73,9 +72,9 @@ Note that Watchtower, if running, will eventually replace a locally-built `:main
 
 - Do NOT `docker build` on the prod box for a normal deploy. The box should PULL `:main` from Hub; local builds are the fallback only.
 - Do NOT deploy from Hub before the new CI has pushed a good amd64 image (see CRITICAL ORDERING above).
-- Do NOT build or push (in the fallback) without `--build-arg NEXT_PUBLIC_MCP_URL=...`. The browser bundle will end up with an empty URL and the app will be silently broken in prod.
+- Do NOT hardcode a host MCP URL anywhere. The client derives the endpoint from the app's own origin at runtime (`<origin>/api/mcp`); there is no build-arg or env var to set.
 - Do NOT run `npm run db:migrate` against a Docker deploy. Migrations run automatically on container boot (`instrumentation.ts`, gated by `RUN_DB_MIGRATIONS=true`), and `drizzle-kit` is not installed in the runner image.
-- Do NOT echo or log `POSTGRES_PASSWORD`, `MCP_SESSION_TOKEN_SECRET`, `DOCKERHUB_TOKEN`, or any other secret. Build-time `NEXT_PUBLIC_MCP_URL` is public (it is literally in the client bundle), so it is safe to print.
+- Do NOT echo or log `POSTGRES_PASSWORD`, `MCP_SESSION_TOKEN_SECRET`, `DOCKERHUB_TOKEN`, or any other secret.
 
 ---
 

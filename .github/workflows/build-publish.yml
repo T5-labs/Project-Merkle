@@ -5,12 +5,12 @@
 # runner, no QEMU) and PUSHES it to Docker Hub tagged both `:main` and
 # `:<sha>` — the same image the deploy consumes.
 #
-# NEXT_PUBLIC_MCP_URL is sourced from the repo-level Actions Variable
-# (not hardcoded) so it is configurable without editing this file.
+# The client derives the MCP endpoint from the app's own origin at
+# runtime (`<origin>/api/mcp`), so the build needs no MCP URL — the
+# same image deploys anywhere with no build-arg or per-host config.
 #
 # Requires repo secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (the
-# token must have WRITE/push scope) and the Actions Variable
-# NEXT_PUBLIC_MCP_URL.
+# token must have WRITE/push scope).
 
 name: Build & Push to Docker Hub
 
@@ -56,15 +56,6 @@ jobs:
           # Single-arch plain manifest (no OCI index) — friendliest for
           # Watchtower/older hosts.
           provenance: false
-          # NEXT_PUBLIC_MCP_URL is baked into the client bundle at BUILD
-          # time. It is sourced from the repo-level Actions Variable
-          # NEXT_PUBLIC_MCP_URL (Settings → Secrets and variables →
-          # Actions → Variables) so it is configurable without editing
-          # this file. If that variable is unset, the client bundle ships
-          # an empty URL and the browser app breaks — so the variable
-          # MUST be set.
-          build-args: |
-            NEXT_PUBLIC_MCP_URL=${{ vars.NEXT_PUBLIC_MCP_URL }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/project-merkle:main
             ${{ secrets.DOCKERHUB_USERNAME }}/project-merkle:${{ github.sha }}

@@ -283,9 +283,7 @@ function SessionUI({ sessionId, onNotFound }: { sessionId: string; onNotFound: (
   async function handleShare() {
     try {
       const shareUrl = window.location.href;
-      const mcpUrl =
-        process.env.NEXT_PUBLIC_MCP_URL ??
-        window.location.origin + '/api/mcp';
+      const mcpUrl = window.location.origin + '/api/mcp';
       const passcode = getPasscode(sessionId) ?? '<PASSCODE — ask the session creator>';
       const payload = `[Project-Merkle session invitation]
 
@@ -358,9 +356,7 @@ Staying present -- You are event-driven: you stay in the session only by calling
   async function handleDownload() {
     try {
       const shareUrl = window.location.href;
-      const mcpUrl =
-        process.env.NEXT_PUBLIC_MCP_URL ??
-        window.location.origin + '/api/mcp';
+      const mcpUrl = window.location.origin + '/api/mcp';
       const payload = `[Project-Merkle session download]
 
 The user wants to save this concluded session's document to their Obsidian vault.

@@ -2,12 +2,10 @@
  * Thin MCP client for the web UI.
  *
  * Endpoint URL:
- *   Defaults to `/api/mcp` (relative, same-origin). Override by setting the
- *   NEXT_PUBLIC_MCP_URL environment variable at build time. This matches the
- *   README's dynamic-URL contract — agents read the URL from their config;
- *   the web UI reads it from the Next.js public env namespace.
- *
- *   Example: NEXT_PUBLIC_MCP_URL=https://your-host.fly.dev/api/mcp
+ *   Always `/api/mcp` (relative, same-origin). The browser resolves it against
+ *   the current origin at request time, so the same image deploys anywhere
+ *   without a build-time URL. Agents read their absolute URL from their config;
+ *   the web UI's transport just needs the relative path.
  *
  * Long-poll / wait_for_messages:
  *   `wait_for_messages` holds the connection open server-side for up to 30s.
@@ -83,10 +81,11 @@ const DEFAULT_MCP_URL = "/api/mcp";
 
 /**
  * Resolves the MCP endpoint URL.
- * Uses NEXT_PUBLIC_MCP_URL if set, otherwise falls back to /api/mcp.
+ * Always relative/same-origin — the browser resolves it against the current
+ * origin for the transport fetch, so the same image works on any host.
  */
 function getMcpUrl(): string {
-  return process.env.NEXT_PUBLIC_MCP_URL ?? DEFAULT_MCP_URL;
+  return DEFAULT_MCP_URL;
 }
 
 /**

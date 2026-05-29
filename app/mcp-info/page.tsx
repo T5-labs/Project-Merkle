@@ -92,7 +92,9 @@ export default function McpInfoPage() {
               <CardTitle className="text-lg">Calling the endpoint</CardTitle>
               <CardDescription>
                 Use a POST with the correct headers and a JSON-RPC body. The
-                example below lists all available tools.
+                example below lists all available tools — replace{' '}
+                <span className="font-mono text-foreground">https://&lt;your-host&gt;</span>{' '}
+                with this app's own origin (whatever host you reached this page on).
               </CardDescription>
             </CardHeader>
             <CardContent>

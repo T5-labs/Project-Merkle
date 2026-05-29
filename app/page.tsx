@@ -449,8 +449,7 @@ function FooterButtons() {
   const [mcpUrl, setMcpUrl] = useState('');
 
   useEffect(() => {
-    const envUrl = process.env.NEXT_PUBLIC_MCP_URL;
-    setMcpUrl(envUrl ?? window.location.origin + '/api/mcp');
+    setMcpUrl(window.location.origin + '/api/mcp');
   }, []);
 
   async function handleCopy() {
